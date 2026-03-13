@@ -2,6 +2,8 @@
 
 Rust-first push-to-talk communication platform.
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 ## Prerequisites
 
 - Rust 1.75+ (install via [rustup](https://rustup.rs/))
