@@ -1,0 +1,14 @@
+# IDE
+.idea/
+.vscode/
+
+# Private docs (spec, plan, todo)
+docs/
+
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Environment
+.env

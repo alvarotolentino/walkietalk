@@ -1,0 +1,21 @@
+[package]
+name = "walkietalk-shared"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+axum = ["dep:axum", "dep:async-trait"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+jsonwebtoken = { workspace = true }
+argon2 = { workspace = true }
+
+# Optional: axum integration (IntoResponse for AppError, AuthUser extractor)
+axum = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
