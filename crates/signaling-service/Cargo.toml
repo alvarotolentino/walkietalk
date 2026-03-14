@@ -1,0 +1,23 @@
+[package]
+name = "walkietalk-signaling"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+walkietalk-shared = { path = "../shared", features = ["axum"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tower-http = { workspace = true }
+dotenvy = { workspace = true }
+dashmap = { workspace = true }
+futures-util = { workspace = true }
+validator = { workspace = true }
+rand = { workspace = true }

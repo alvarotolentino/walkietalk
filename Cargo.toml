@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/shared",
     "crates/auth-service",
+    "crates/signaling-service",
 ]
 
 [workspace.dependencies]
@@ -17,7 +18,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Web
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Database
@@ -33,6 +34,10 @@ validator = { version = "0.18", features = ["derive"] }
 
 # Async
 async-trait = "0.1"
+
+# Concurrency
+dashmap = "6"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 
 # Config
 dotenvy = "0.15"
