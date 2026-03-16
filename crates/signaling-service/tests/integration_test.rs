@@ -46,6 +46,7 @@ async fn start_server(pool: PgPool) -> String {
         floor_manager: Arc::new(floor_manager),
         presence: Arc::new(PresenceManager::new()),
         lock_key_map: Arc::new(DashMap::new()),
+        zmq_relay: None,
     });
 
     let app = Router::new()

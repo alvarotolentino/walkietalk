@@ -32,6 +32,18 @@ impl WsHub {
         self.rooms.entry(*room_id).or_default().push(handle);
     }
 
+    /// Number of local clients currently in a room.
+    pub fn room_client_count(&self, room_id: &RoomId) -> usize {
+        self.rooms.get(room_id).map_or(0, |c| c.len())
+    }
+
+    /// Check if a user has a local connection in a given room.
+    pub fn has_local_client(&self, room_id: &RoomId, user_id: &UserId) -> bool {
+        self.rooms.get(room_id).is_some_and(|clients| {
+            clients.iter().any(|c| c.user_id == *user_id)
+        })
+    }
+
     /// Remove a specific client from a room. Returns true if found.
     pub fn remove_client(&self, room_id: &RoomId, user_id: &UserId) -> bool {
         let mut removed = false;

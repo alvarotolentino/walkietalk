@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket};
+use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 
@@ -211,6 +212,13 @@ async fn handle_join_room(
         conn_state.lock_keys.insert(room_id, key);
         // Populate the shared lock_key → RoomId map for binary audio relay
         state.lock_key_map.insert(key, room_id);
+
+        // Subscribe to ZMQ topics on first local client joining this room
+        if let Some(ref relay) = state.zmq_relay {
+            if state.ws_hub.room_client_count(&room_id) == 0 {
+                relay.subscribe_room(key).await;
+            }
+        }
     }
 
     // Register in hub
@@ -286,6 +294,15 @@ async fn handle_leave_room(
     // Remove from hub
     state.ws_hub.remove_client(&room_id, &user_id);
 
+    // Unsubscribe from ZMQ topics if this was the last local client
+    if let Some(ref relay) = state.zmq_relay {
+        if state.ws_hub.room_client_count(&room_id) == 0 {
+            if let Some(&key) = conn_state.lock_keys.get(&room_id) {
+                relay.unsubscribe_room(key).await;
+            }
+        }
+    }
+
     // Update presence
     state.presence.remove_user(&room_id, &user_id);
 
@@ -360,38 +377,45 @@ async fn handle_floor_request(
     // Build timeout callback
     let timeout_state = Arc::clone(state);
     let timeout_room = room_id;
+    let timeout_lock_key = lock_key;
     let on_timeout = move || {
         // This runs when the 60s timeout fires
         let holder = timeout_state.floor_manager.force_release(&timeout_room);
         if let Some(uid) = holder {
-            timeout_state.ws_hub.broadcast_to_room(
-                &timeout_room,
-                &ServerMessage::FloorTimeout {
-                    room_id: timeout_room,
-                    user_id: uid,
-                },
-            );
-            timeout_state.ws_hub.broadcast_to_room(
-                &timeout_room,
-                &ServerMessage::FloorReleased {
-                    room_id: timeout_room,
-                    user_id: uid,
-                },
-            );
-            // Revert presence to Online
+            let timeout_msg = ServerMessage::FloorTimeout {
+                room_id: timeout_room,
+                user_id: uid,
+            };
+            let released_msg = ServerMessage::FloorReleased {
+                room_id: timeout_room,
+                user_id: uid,
+            };
+            let presence_msg = ServerMessage::PresenceUpdate {
+                room_id: timeout_room,
+                user_id: uid,
+                status: PresenceStatus::Online,
+            };
+
+            timeout_state.ws_hub.broadcast_to_room(&timeout_room, &timeout_msg);
+            timeout_state.ws_hub.broadcast_to_room(&timeout_room, &released_msg);
+
             timeout_state.presence.set_status(
                 &timeout_room,
                 &uid,
                 PresenceStatus::Online,
             );
-            timeout_state.ws_hub.broadcast_to_room(
-                &timeout_room,
-                &ServerMessage::PresenceUpdate {
-                    room_id: timeout_room,
-                    user_id: uid,
-                    status: PresenceStatus::Online,
-                },
-            );
+            timeout_state.ws_hub.broadcast_to_room(&timeout_room, &presence_msg);
+
+            // Publish to ZMQ for other nodes
+            if let Some(ref relay) = timeout_state.zmq_relay {
+                let relay = Arc::clone(relay);
+                let lk = timeout_lock_key;
+                tokio::spawn(async move {
+                    relay.publish_control(lk, &timeout_msg).await;
+                    relay.publish_control(lk, &released_msg).await;
+                    relay.publish_control(lk, &presence_msg).await;
+                });
+            }
         }
     };
 
@@ -406,27 +430,32 @@ async fn handle_floor_request(
                 &conn_state.tx,
                 &ServerMessage::FloorGranted { room_id, user_id },
             );
+            let occupied_msg = ServerMessage::FloorOccupied {
+                room_id,
+                speaker_id: user_id,
+                display_name: conn_state.display_name.clone(),
+            };
             state.ws_hub.broadcast_to_room_except(
                 &room_id,
                 &user_id,
-                &ServerMessage::FloorOccupied {
-                    room_id,
-                    speaker_id: user_id,
-                    display_name: conn_state.display_name.clone(),
-                },
+                &occupied_msg,
             );
             // Update presence to Speaking
             state
                 .presence
                 .set_status(&room_id, &user_id, PresenceStatus::Speaking);
-            state.ws_hub.broadcast_to_room(
-                &room_id,
-                &ServerMessage::PresenceUpdate {
-                    room_id,
-                    user_id,
-                    status: PresenceStatus::Speaking,
-                },
-            );
+            let presence_msg = ServerMessage::PresenceUpdate {
+                room_id,
+                user_id,
+                status: PresenceStatus::Speaking,
+            };
+            state.ws_hub.broadcast_to_room(&room_id, &presence_msg);
+
+            // Publish floor events to ZMQ for other nodes
+            if let Some(ref relay) = state.zmq_relay {
+                relay.publish_control(lock_key, &occupied_msg).await;
+                relay.publish_control(lock_key, &presence_msg).await;
+            }
         }
         Ok(false) => {
             send_to_client(
@@ -511,10 +540,15 @@ async fn handle_binary_frame(
         "relaying audio frame",
     );
 
-    // Relay verbatim binary to all other clients in the room
+    // Relay verbatim binary to all other local clients in the room
     state
         .ws_hub
         .broadcast_binary_to_room_except(&room_id, &user_id, data);
+
+    // Publish to ZMQ for multi-node fan-out (if configured)
+    if let Some(ref relay) = state.zmq_relay {
+        relay.publish_audio(wire_room_id as i64, &user_id, data).await;
+    }
 
     // If END_OF_TRANSMISSION flag is set, trigger floor release
     if flags & walkietalk_shared::audio::FLAG_END_OF_TRANSMISSION != 0 {
@@ -541,26 +575,37 @@ async fn release_floor_if_held(room_id: &RoomId, user_id: &UserId, state: &Arc<A
 
     // Use force_release (sync) to avoid needing the lock_key
     if let Some(uid) = state.floor_manager.force_release(room_id) {
-        state.ws_hub.broadcast_to_room(
-            room_id,
-            &ServerMessage::FloorReleased {
-                room_id: *room_id,
-                user_id: uid,
-            },
-        );
+        let released_msg = ServerMessage::FloorReleased {
+            room_id: *room_id,
+            user_id: uid,
+        };
+        state.ws_hub.broadcast_to_room(room_id, &released_msg);
+
         // Revert presence to Online
         state
             .presence
             .set_status(room_id, &uid, PresenceStatus::Online);
-        state.ws_hub.broadcast_to_room(
-            room_id,
-            &ServerMessage::PresenceUpdate {
-                room_id: *room_id,
-                user_id: uid,
-                status: PresenceStatus::Online,
-            },
-        );
+        let presence_msg = ServerMessage::PresenceUpdate {
+            room_id: *room_id,
+            user_id: uid,
+            status: PresenceStatus::Online,
+        };
+        state.ws_hub.broadcast_to_room(room_id, &presence_msg);
+
+        // Publish to ZMQ for other nodes
+        if let Some(ref relay) = state.zmq_relay {
+            // Reverse-lookup lock_key from room_id
+            if let Some(lock_key) = find_lock_key(&state.lock_key_map, room_id) {
+                relay.publish_control(lock_key, &released_msg).await;
+                relay.publish_control(lock_key, &presence_msg).await;
+            }
+        }
     }
+}
+
+/// Reverse-lookup: find the lock_key for a given RoomId.
+fn find_lock_key(map: &DashMap<i64, RoomId>, room_id: &RoomId) -> Option<i64> {
+    map.iter().find(|entry| entry.value() == room_id).map(|entry| *entry.key())
 }
 
 /// Clean up all state when a client disconnects.
@@ -597,6 +642,15 @@ async fn cleanup_connection(conn_state: &ConnectionState, state: &Arc<AppState>)
 
         // Remove from hub
         state.ws_hub.remove_client(room_id, &user_id);
+
+        // Unsubscribe from ZMQ if last local client left this room
+        if let Some(ref relay) = state.zmq_relay {
+            if state.ws_hub.room_client_count(room_id) == 0 {
+                if let Some(&key) = conn_state.lock_keys.get(room_id) {
+                    relay.unsubscribe_room(key).await;
+                }
+            }
+        }
 
         // Broadcast member left
         state.ws_hub.broadcast_to_room(

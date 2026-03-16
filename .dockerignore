@@ -1,0 +1,8 @@
+target/
+.env
+*.log
+docs/
+scripts/
+.git/
+.gitignore
+.dockerignore

@@ -4,6 +4,7 @@ members = [
     "crates/shared",
     "crates/auth-service",
     "crates/signaling-service",
+    "crates/zmq-proxy",
 ]
 
 [workspace.dependencies]

@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: walkietalk
+      POSTGRES_PASSWORD: walkietalk
+      POSTGRES_DB: walkietalk
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U walkietalk"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  zmq-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/walkietalk-zmq-proxy"]
+    environment:
+      ZMQ_PULL_ADDR: "tcp://0.0.0.0:5559"
+      ZMQ_PUB_ADDR: "tcp://0.0.0.0:5560"
+    ports:
+      - "5559:5559"
+      - "5560:5560"
+
+  auth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/walkietalk-auth"]
+    environment:
+      DATABASE_URL: "postgres://walkietalk:walkietalk@postgres:5432/walkietalk"
+      JWT_SECRET: "test-secret"
+      AUTH_LISTEN_ADDR: "0.0.0.0:3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  signaling-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/walkietalk-signaling"]
+    environment:
+      DATABASE_URL: "postgres://walkietalk:walkietalk@postgres:5432/walkietalk"
+      JWT_SECRET: "test-secret"
+      SIGNALING_LISTEN_ADDR: "0.0.0.0:3002"
+      ZMQ_PUSH_ADDR: "tcp://zmq-proxy:5559"
+      ZMQ_SUB_ADDR: "tcp://zmq-proxy:5560"
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zmq-proxy:
+        condition: service_started
+
+  signaling-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/walkietalk-signaling"]
+    environment:
+      DATABASE_URL: "postgres://walkietalk:walkietalk@postgres:5432/walkietalk"
+      JWT_SECRET: "test-secret"
+      SIGNALING_LISTEN_ADDR: "0.0.0.0:3002"
+      ZMQ_PUSH_ADDR: "tcp://zmq-proxy:5559"
+      ZMQ_SUB_ADDR: "tcp://zmq-proxy:5560"
+    ports:
+      - "3003:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zmq-proxy:
+        condition: service_started

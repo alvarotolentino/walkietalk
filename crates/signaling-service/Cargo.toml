@@ -21,6 +21,8 @@ dashmap = { workspace = true }
 futures-util = { workspace = true }
 validator = { workspace = true }
 rand = { workspace = true }
+zeromq = "=0.6.0-pre.1"
+bytes = "1"
 
 [dev-dependencies]
 tokio-tungstenite = "0.24"
