@@ -6,6 +6,7 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 
+use walkietalk_shared::audio::AudioFrame;
 use walkietalk_shared::enums::PresenceStatus;
 use walkietalk_shared::ids::{RoomId, UserId};
 use walkietalk_shared::messages::{ClientMessage, MemberInfo, ServerMessage};
@@ -208,6 +209,8 @@ async fn handle_join_room(
     // Cache lock_key for this room (avoids DB lookup on every floor request)
     if let Ok(key) = get_room_lock_key(&state.db, &room_id).await {
         conn_state.lock_keys.insert(room_id, key);
+        // Populate the shared lock_key → RoomId map for binary audio relay
+        state.lock_key_map.insert(key, room_id);
     }
 
     // Register in hub
@@ -481,32 +484,42 @@ async fn handle_binary_frame(
     conn_state: &ConnectionState,
     state: &Arc<AppState>,
 ) {
-    // Minimum: 16 bytes room_id UUID + some payload
-    if data.len() < 17 {
-        return;
-    }
-
-    // First 16 bytes = room_id UUID
-    let room_uuid = match uuid::Uuid::from_slice(&data[..16]) {
-        Ok(u) => u,
-        Err(_) => return,
+    // Decode only the fixed header (fast path — no payload allocation)
+    let (wire_room_id, speaker_id, sequence_num, flags) = match AudioFrame::decode_header(data) {
+        Ok(h) => h,
+        Err(_) => return, // malformed frame — silently drop
     };
-    let room_id = RoomId(room_uuid);
 
-    // Verify the sender holds the floor (in-memory, zero DB cost)
-    if !state
-        .floor_manager
-        .is_held_by(&room_id, &conn_state.user_id)
-    {
-        return; // silently drop — sender is not the floor holder
+    // Map wire room_id (lock_key) → RoomId UUID
+    let room_id = match state.lock_key_map.get(&(wire_room_id as i64)) {
+        Some(entry) => *entry,
+        None => return, // unknown room — silently drop
+    };
+
+    let user_id = conn_state.user_id;
+
+    // Floor validation (in-memory, no DB cost)
+    if !state.floor_manager.is_held_by(&room_id, &user_id) {
+        return; // sender does not hold the floor — silently drop
     }
 
-    // Relay to all other clients in the room
-    state.ws_hub.broadcast_binary_to_room_except(
-        &room_id,
-        &conn_state.user_id,
-        data,
+    tracing::debug!(
+        %room_id,
+        speaker_id,
+        sequence_num,
+        payload_len = data.len().saturating_sub(walkietalk_shared::audio::HEADER_SIZE),
+        "relaying audio frame",
     );
+
+    // Relay verbatim binary to all other clients in the room
+    state
+        .ws_hub
+        .broadcast_binary_to_room_except(&room_id, &user_id, data);
+
+    // If END_OF_TRANSMISSION flag is set, trigger floor release
+    if flags & walkietalk_shared::audio::FLAG_END_OF_TRANSMISSION != 0 {
+        release_floor_if_held(&room_id, &user_id, state).await;
+    }
 }
 
 // ---------------------------------------------------------------------------

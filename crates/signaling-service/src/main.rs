@@ -1,28 +1,19 @@
-mod config;
-mod floor;
-mod hub;
-mod models;
-mod presence;
-mod routes;
-mod state;
-mod utils;
-mod ws;
-
 use std::sync::Arc;
 
 use axum::routing::get;
 use axum::Router;
+use dashmap::DashMap;
 use sqlx::postgres::PgPool;
 use tower_http::trace::TraceLayer;
 
-use crate::config::Config;
-use crate::floor::FloorManager;
-use crate::hub::WsHub;
-use crate::presence::PresenceManager;
-use crate::routes::health::health_check;
-use crate::routes::rooms_router;
-use crate::state::AppState;
-use crate::ws::handler::ws_upgrade;
+use walkietalk_signaling::config::Config;
+use walkietalk_signaling::floor::FloorManager;
+use walkietalk_signaling::hub::WsHub;
+use walkietalk_signaling::presence::PresenceManager;
+use walkietalk_signaling::routes::health::health_check;
+use walkietalk_signaling::routes::rooms_router;
+use walkietalk_signaling::state::AppState;
+use walkietalk_signaling::ws::handler::ws_upgrade;
 
 #[tokio::main]
 async fn main() {
@@ -57,6 +48,7 @@ async fn main() {
         ws_hub: Arc::new(WsHub::new()),
         floor_manager: Arc::new(floor_manager),
         presence: Arc::new(PresenceManager::new()),
+        lock_key_map: Arc::new(DashMap::new()),
     });
 
     let app = Router::new()

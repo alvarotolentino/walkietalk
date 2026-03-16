@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use sqlx::PgPool;
 use walkietalk_shared::extractors::HasJwtSecret;
+use walkietalk_shared::ids::RoomId;
 
 use crate::floor::FloorManager;
 use crate::hub::WsHub;
@@ -15,6 +17,8 @@ pub struct AppState {
     pub ws_hub: Arc<WsHub>,
     pub floor_manager: Arc<FloorManager>,
     pub presence: Arc<PresenceManager>,
+    /// Maps wire room_id (lock_key as i64) → RoomId (UUID).
+    pub lock_key_map: Arc<DashMap<i64, RoomId>>,
 }
 
 impl HasJwtSecret for AppState {
