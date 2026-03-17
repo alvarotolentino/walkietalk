@@ -28,73 +28,126 @@ export interface RoomMember {
   role: "owner" | "member";
 }
 
+export interface RoomResult {
+  ok: boolean;
+  error?: string;
+  room?: Room;
+  rooms?: Room[];
+  invite_code?: string;
+}
+
 const [rooms, setRooms] = createSignal<Room[]>([]);
 
 export { rooms };
 
 export async function fetchRooms(): Promise<void> {
-  const list = await invoke<Room[]>("get_rooms");
-  setRooms(list);
+  try {
+    const list = await invoke<Room[]>("get_rooms");
+    setRooms(list);
+  } catch {
+    // silently keep stale list
+  }
 }
 
 export async function createRoom(
   name: string,
-  description: string,
+  description: string | undefined,
   visibility: "public" | "private",
-): Promise<Room> {
-  const room = await invoke<Room>("create_room", { name, description, visibility });
-  setRooms((prev) => [...prev, room]);
-  return room;
+): Promise<RoomResult> {
+  try {
+    const room = await invoke<Room>("create_room", { name, description: description ?? "", visibility });
+    setRooms((prev) => [...prev, room]);
+    return { ok: true, room };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function joinByCode(code: string): Promise<Room> {
-  const room = await invoke<Room>("join_by_code", { code });
-  setRooms((prev) => {
-    if (prev.some((r) => r.id === room.id)) return prev;
-    return [...prev, room];
-  });
-  return room;
+export async function joinByCode(code: string): Promise<RoomResult> {
+  try {
+    const room = await invoke<Room>("join_by_code", { code });
+    setRooms((prev) => {
+      if (prev.some((r) => r.id === room.id)) return prev;
+      return [...prev, room];
+    });
+    return { ok: true, room };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function joinRoom(roomId: string): Promise<Room> {
-  const room = await invoke<Room>("join_room", { roomId });
-  setRooms((prev) => {
-    if (prev.some((r) => r.id === room.id)) return prev;
-    return [...prev, room];
-  });
-  return room;
+export async function joinRoom(roomId: string): Promise<RoomResult> {
+  try {
+    const room = await invoke<Room>("join_room", { roomId });
+    setRooms((prev) => {
+      if (prev.some((r) => r.id === room.id)) return prev;
+      return [...prev, room];
+    });
+    return { ok: true, room };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function leaveRoom(roomId: string): Promise<void> {
-  await invoke("leave_room", { roomId });
-  setRooms((prev) => prev.filter((r) => r.id !== roomId));
+export async function leaveRoom(roomId: string): Promise<RoomResult> {
+  try {
+    await invoke("leave_room", { roomId });
+    setRooms((prev) => prev.filter((r) => r.id !== roomId));
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function fetchPublicRooms(search: string): Promise<Room[]> {
-  return invoke<Room[]>("get_public_rooms", { search });
+export async function fetchPublicRooms(search: string): Promise<RoomResult> {
+  try {
+    const list = await invoke<Room[]>("get_public_rooms", { search });
+    return { ok: true, rooms: list };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function getRoomSettings(roomId: string): Promise<RoomSettings> {
-  return invoke<RoomSettings>("get_room_settings", { roomId });
+export async function getRoomSettings(roomId: string): Promise<RoomResult & { room?: RoomSettings }> {
+  try {
+    const settings = await invoke<RoomSettings>("get_room_settings", { roomId });
+    return { ok: true, room: settings };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 export async function updateRoom(
   roomId: string,
-  name: string,
-  description: string,
-  visibility: "public" | "private",
-): Promise<void> {
-  await invoke("update_room", { roomId, name, description, visibility });
-  setRooms((prev) =>
-    prev.map((r) => (r.id === roomId ? { ...r, name, description, visibility } : r))
-  );
+  changes: { name: string; description?: string; visibility: "public" | "private" },
+): Promise<RoomResult> {
+  try {
+    const { name, description, visibility } = changes;
+    await invoke("update_room", { roomId, name, description: description ?? "", visibility });
+    setRooms((prev) =>
+      prev.map((r) => (r.id === roomId ? { ...r, name, description, visibility } : r))
+    );
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function deleteRoom(roomId: string): Promise<void> {
-  await invoke("delete_room", { roomId });
-  setRooms((prev) => prev.filter((r) => r.id !== roomId));
+export async function deleteRoom(roomId: string): Promise<RoomResult> {
+  try {
+    await invoke("delete_room", { roomId });
+    setRooms((prev) => prev.filter((r) => r.id !== roomId));
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export async function regenerateInvite(roomId: string): Promise<string> {
-  return invoke<string>("regenerate_invite", { roomId });
+export async function regenerateInvite(roomId: string): Promise<RoomResult> {
+  try {
+    const code = await invoke<string>("regenerate_invite", { roomId });
+    return { ok: true, invite_code: code };
+  } catch (e: unknown) {
+    return { ok: false, error: String(e) };
+  }
 }
