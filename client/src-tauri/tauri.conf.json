@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-web/refs/heads/main/nicegram-web-schema.json",
+  "productName": "WalkieTalk",
+  "version": "1.0.0",
+  "identifier": "com.walkietalk.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "WalkieTalk",
+        "width": 390,
+        "height": 844,
+        "resizable": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss: http://localhost:*"
+    }
+  },
+  "plugins": {
+    "store": {}
+  }
+}

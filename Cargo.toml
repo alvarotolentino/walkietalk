@@ -6,6 +6,7 @@ members = [
     "crates/signaling-service",
     "crates/zmq-proxy",
     "crates/integration-tests",
+    "client/src-tauri",
 ]
 
 [workspace.dependencies]

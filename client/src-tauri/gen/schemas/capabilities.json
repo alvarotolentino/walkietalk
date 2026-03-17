@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capability for the main window","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:event:allow-emit","core:event:allow-listen","store:default","store:allow-get","store:allow-set","store:allow-delete","store:allow-clear","store:allow-save"]}}

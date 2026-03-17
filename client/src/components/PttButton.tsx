@@ -1,0 +1,148 @@
+import { type Component, createSignal, createMemo, Show, onCleanup } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
+import { isTransmitting, sendLevel, floorTimeRemaining } from "../stores/audio";
+import { connectionState } from "../stores/connection";
+import { floorHolder, members } from "../stores/activeRoom";
+import { user } from "../stores/auth";
+import VuMeter from "./VuMeter";
+import { triggerHaptic } from "../utils/haptics";
+
+export type PttState = "idle" | "requesting" | "transmitting" | "occupied" | "disconnected";
+
+export interface PttButtonProps {
+  roomId: string;
+  speakerName?: string;
+  isConnected: boolean;
+}
+
+const PttButton: Component<PttButtonProps> = (props) => {
+  const [requesting, setRequesting] = createSignal(false);
+
+  const pttState = createMemo<PttState>(() => {
+    if (!props.isConnected || connectionState() !== "connected") return "disconnected";
+    if (isTransmitting()) return "transmitting";
+    if (requesting()) return "requesting";
+    const holder = floorHolder();
+    const me = user();
+    if (holder && me && holder !== me.id) return "occupied";
+    return "idle";
+  });
+
+  const stateConfig: Record<PttState, { bg: string; label: string; icon: string }> = {
+    idle: { bg: "var(--color-ptt-idle)", label: "Hold to talk", icon: "🎤" },
+    requesting: { bg: "var(--color-ptt-requesting)", label: "Requesting...", icon: "⏳" },
+    transmitting: { bg: "var(--color-ptt-transmitting)", label: "Release to stop", icon: "🎤" },
+    occupied: { bg: "var(--color-ptt-occupied)", label: `${props.speakerName ?? "Someone"} is talking`, icon: "🔒" },
+    disconnected: { bg: "var(--color-ptt-disabled)", label: "Not connected", icon: "📵" },
+  };
+
+  const cfg = () => stateConfig[pttState()];
+  const isDisabled = () => pttState() === "occupied" || pttState() === "disconnected";
+
+  const handlePressStart = async () => {
+    if (isDisabled()) {
+      if (pttState() === "occupied") {
+        triggerHaptic("rigid");
+      }
+      return;
+    }
+    if (pttState() === "transmitting") return;
+
+    triggerHaptic("light");
+    setRequesting(true);
+    try {
+      await invoke("request_floor", { roomId: props.roomId });
+    } catch {
+      setRequesting(false);
+    }
+  };
+
+  const handlePressEnd = async () => {
+    if (pttState() === "transmitting") {
+      triggerHaptic("light");
+      try {
+        await invoke("release_floor", { roomId: props.roomId });
+      } catch {
+        // Floor release failed; server timeout will clean up
+      }
+    }
+    setRequesting(false);
+  };
+
+  // The requesting flag is cleared when we transition to transmitting or idle
+  // (the store update from floor_granted/denied event handles the actual state)
+
+  const ariaLabel = createMemo(() => {
+    switch (pttState()) {
+      case "idle": return "Push to talk. Hold to speak.";
+      case "requesting": return "Requesting floor. Please wait.";
+      case "transmitting": return "Transmitting. Release to stop.";
+      case "occupied": return `${props.speakerName ?? "Someone"} is speaking. Push to talk disabled.`;
+      case "disconnected": return "Not connected. Push to talk disabled.";
+    }
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        "flex-direction": "column",
+        "align-items": "center",
+        gap: "var(--space-3)",
+        "padding-bottom": "env(safe-area-inset-bottom, var(--space-4))",
+      }}
+    >
+      <Show when={pttState() === "transmitting"}>
+        <VuMeter level={sendLevel()} variant="send" />
+      </Show>
+      <button
+        role="button"
+        aria-label={ariaLabel()}
+        aria-pressed={pttState() === "transmitting"}
+        aria-disabled={isDisabled()}
+        onPointerDown={handlePressStart}
+        onPointerUp={handlePressEnd}
+        onPointerLeave={handlePressEnd}
+        onContextMenu={(e) => e.preventDefault()}
+        style={{
+          width: "140px",
+          height: "140px",
+          "border-radius": "var(--radius-full)",
+          background: cfg().bg,
+          border: "none",
+          cursor: isDisabled() ? "not-allowed" : "pointer",
+          display: "flex",
+          "flex-direction": "column",
+          "align-items": "center",
+          "justify-content": "center",
+          gap: "var(--space-1)",
+          "font-size": "var(--text-3xl)",
+          color: "#fff",
+          "box-shadow": pttState() === "transmitting"
+            ? `0 0 0 8px ${cfg().bg}44, 0 0 30px ${cfg().bg}66`
+            : "var(--shadow-lg)",
+          animation: pttState() === "transmitting" ? "pttPulse 1s ease-in-out infinite" : "none",
+          transition: "background var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default)",
+          "touch-action": "none",
+          "user-select": "none",
+          "-webkit-user-select": "none",
+        }}
+      >
+        <span style={{ "font-size": "40px" }} aria-hidden="true">
+          {cfg().icon}
+        </span>
+      </button>
+      <span
+        style={{
+          "font-size": "var(--text-sm)",
+          color: "var(--color-text-secondary)",
+          "text-align": "center",
+        }}
+      >
+        {cfg().label}
+      </span>
+    </div>
+  );
+};
+
+export default PttButton;
