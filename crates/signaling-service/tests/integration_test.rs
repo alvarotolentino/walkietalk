@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::routing::get;
-use axum::Router;
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use sqlx::PgPool;
@@ -20,9 +18,7 @@ use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 use walkietalk_signaling::floor::FloorManager;
 use walkietalk_signaling::hub::WsHub;
 use walkietalk_signaling::presence::PresenceManager;
-use walkietalk_signaling::routes::{health::health_check, rooms_router};
 use walkietalk_signaling::state::AppState;
-use walkietalk_signaling::ws::handler::ws_upgrade;
 
 const TEST_JWT_SECRET: &str = "integration-test-secret";
 const RECV_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,11 +45,7 @@ async fn start_server(pool: PgPool) -> String {
         zmq_relay: None,
     });
 
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/ws", get(ws_upgrade))
-        .nest("/rooms", rooms_router())
-        .with_state(state);
+    let app = walkietalk_signaling::build_app(state);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

@@ -1,13 +1,7 @@
 pub mod config;
-pub mod floor;
-pub mod hub;
 pub mod models;
-pub mod presence;
 pub mod routes;
 pub mod state;
-pub mod utils;
-pub mod ws;
-pub mod zmq_relay;
 
 use std::sync::Arc;
 
@@ -15,15 +9,14 @@ use axum::routing::get;
 use axum::Router;
 
 use routes::health::health_check;
-use routes::rooms_router;
+use routes::{auth_router, users_router};
 use state::AppState;
-use ws::handler::ws_upgrade;
 
-/// Build the signaling-service Axum router. Used by `main` and integration tests.
+/// Build the auth-service Axum router. Used by `main` and integration tests.
 pub fn build_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
-        .route("/ws", get(ws_upgrade))
-        .nest("/rooms", rooms_router())
+        .nest("/auth", auth_router())
+        .nest("/users", users_router())
         .with_state(state)
 }

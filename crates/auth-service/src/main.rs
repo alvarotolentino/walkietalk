@@ -1,19 +1,10 @@
-mod config;
-mod models;
-mod routes;
-mod state;
-
 use std::sync::Arc;
 
-use axum::routing::get;
-use axum::Router;
 use sqlx::postgres::PgPool;
 use tower_http::trace::TraceLayer;
 
-use crate::config::Config;
-use crate::routes::health::health_check;
-use crate::routes::{auth_router, users_router};
-use crate::state::AppState;
+use walkietalk_auth::config::Config;
+use walkietalk_auth::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -42,12 +33,8 @@ async fn main() {
         jwt_secret: config.jwt_secret,
     });
 
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .nest("/auth", auth_router())
-        .nest("/users", users_router())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = walkietalk_auth::build_app(state)
+        .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await

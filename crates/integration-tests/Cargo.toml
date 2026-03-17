@@ -1,0 +1,56 @@
+[package]
+name = "walkietalk-integration-tests"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# This crate has no library — it exists only for integration tests.
+[[test]]
+name = "auth_tests"
+path = "tests/auth_tests.rs"
+
+[[test]]
+name = "signaling_tests"
+path = "tests/signaling_tests.rs"
+
+[[test]]
+name = "cross_service_tests"
+path = "tests/cross_service_tests.rs"
+
+[dependencies]
+# Workspace crates under test
+walkietalk-shared = { path = "../shared", features = ["axum"] }
+walkietalk-auth = { path = "../auth-service" }
+walkietalk-signaling = { path = "../signaling-service" }
+
+# Axum / HTTP
+axum = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Async / runtime
+tokio = { workspace = true }
+futures-util = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Concurrency
+dashmap = { workspace = true }
+
+# Testcontainers
+testcontainers = "0.27.1"
+
+# WebSocket
+tokio-tungstenite = "0.24"
+
+# Tracing (for test output)
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

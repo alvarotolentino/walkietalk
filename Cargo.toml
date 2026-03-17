@@ -5,6 +5,7 @@ members = [
     "crates/auth-service",
     "crates/signaling-service",
     "crates/zmq-proxy",
+    "crates/integration-tests",
 ]
 
 [workspace.dependencies]

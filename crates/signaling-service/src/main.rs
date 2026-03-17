@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use axum::routing::get;
-use axum::Router;
 use dashmap::DashMap;
 use sqlx::postgres::PgPool;
 use tower_http::trace::TraceLayer;
@@ -10,10 +8,7 @@ use walkietalk_signaling::config::Config;
 use walkietalk_signaling::floor::FloorManager;
 use walkietalk_signaling::hub::WsHub;
 use walkietalk_signaling::presence::PresenceManager;
-use walkietalk_signaling::routes::health::health_check;
-use walkietalk_signaling::routes::rooms_router;
 use walkietalk_signaling::state::AppState;
-use walkietalk_signaling::ws::handler::ws_upgrade;
 use walkietalk_signaling::zmq_relay::{self, ZmqRelay};
 
 #[tokio::main]
@@ -79,12 +74,8 @@ async fn main() {
         zmq_relay,
     });
 
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/ws", get(ws_upgrade))
-        .nest("/rooms", rooms_router())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = walkietalk_signaling::build_app(state)
+        .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await
