@@ -10,3 +10,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dotenvy = { workspace = true }
 zeromq = "0.5.0"
+
+[dev-dependencies]
+bytes = "1"
