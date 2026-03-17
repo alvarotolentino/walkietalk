@@ -1,5 +1,6 @@
 use serde::Deserialize;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_store::StoreExt;
 
 use crate::http_client::HttpClient;
 use crate::state::{AppState, TokenPair, UserInfo};
@@ -23,6 +24,7 @@ struct AuthUser {
 pub async fn login(
     email: String,
     password: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<UserInfo, String> {
     let http = HttpClient::new();
@@ -45,10 +47,15 @@ pub async fn login(
         display_name: resp.user.display_name,
     };
 
-    *state.tokens.write().await = Some(TokenPair {
+    let tokens = TokenPair {
         access_token: resp.access_token,
         refresh_token: resp.refresh_token,
-    });
+    };
+
+    // Persist to store
+    persist_auth(&app, &tokens, &user_info);
+
+    *state.tokens.write().await = Some(tokens);
     *state.user.write().await = Some(user_info.clone());
 
     Ok(user_info)
@@ -60,6 +67,7 @@ pub async fn register(
     username: String,
     email: String,
     password: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<UserInfo, String> {
     let http = HttpClient::new();
@@ -81,17 +89,21 @@ pub async fn register(
         display_name: resp.user.display_name,
     };
 
-    *state.tokens.write().await = Some(TokenPair {
+    let tokens = TokenPair {
         access_token: resp.access_token,
         refresh_token: resp.refresh_token,
-    });
+    };
+
+    persist_auth(&app, &tokens, &user_info);
+
+    *state.tokens.write().await = Some(tokens);
     *state.user.write().await = Some(user_info.clone());
 
     Ok(user_info)
 }
 
 #[tauri::command]
-pub async fn logout(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Attempt to call server logout endpoint (best-effort)
     if let Some(tokens) = state.tokens.read().await.as_ref() {
         let http = HttpClient::new();
@@ -108,6 +120,9 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), String> {
     *state.tokens.write().await = None;
     *state.user.write().await = None;
 
+    // Clear persistent store
+    clear_auth(&app);
+
     // Disconnect transport if active
     let mut transport = state.transport.lock().await;
     if let Some(t) = transport.take() {
@@ -118,7 +133,56 @@ pub async fn logout(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_current_user(state: State<'_, AppState>) -> Result<UserInfo, String> {
-    let user = state.user.read().await;
-    user.clone().ok_or_else(|| "not_authenticated".to_string())
+pub async fn get_current_user(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<UserInfo, String> {
+    // Check in-memory state first
+    if let Some(u) = state.user.read().await.clone() {
+        return Ok(u);
+    }
+
+    // Try loading from persistent store
+    let store = app.store("auth.json").map_err(|e| e.to_string())?;
+    let tokens_val = store.get("tokens");
+    let user_val = store.get("user");
+
+    if let (Some(tv), Some(uv)) = (tokens_val, user_val) {
+        if let (Ok(tokens), Ok(user)) = (
+            serde_json::from_value::<TokenPair>(tv),
+            serde_json::from_value::<UserInfo>(uv),
+        ) {
+            *state.tokens.write().await = Some(tokens);
+            *state.user.write().await = Some(user.clone());
+            return Ok(user);
+        }
+    }
+
+    Err("not_authenticated".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn persist_auth(app: &AppHandle, tokens: &TokenPair, user: &UserInfo) {
+    if let Ok(store) = app.store("auth.json") {
+        let _ = store.set(
+            "tokens",
+            serde_json::to_value(tokens).unwrap_or_default(),
+        );
+        let _ = store.set(
+            "user",
+            serde_json::to_value(user).unwrap_or_default(),
+        );
+        let _ = store.save();
+    }
+}
+
+fn clear_auth(app: &AppHandle) {
+    if let Ok(store) = app.store("auth.json") {
+        let _ = store.delete("tokens");
+        let _ = store.delete("user");
+        let _ = store.save();
+    }
 }

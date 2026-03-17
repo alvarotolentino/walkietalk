@@ -1,6 +1,7 @@
 import { type Component, createSignal } from "solid-js";
 import { navigate, Screen } from "../router";
 import { register } from "../stores/auth";
+import { connect } from "../stores/connection";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Toast, { showToast } from "../components/Toast";
@@ -32,14 +33,15 @@ const Register: Component = () => {
     setUsernameError("");
 
     const result = await register(
+      displayName(),
       username(),
       email(),
-      password(),
-      displayName()
+      password()
     );
     setLoading(false);
 
     if (result.ok) {
+      connect().catch(() => {});
       navigate(Screen.RoomList);
     } else if (result.error === "email_taken") {
       setEmailError("This email is already registered.");

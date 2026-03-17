@@ -1,6 +1,7 @@
 import { type Component, onMount, createSignal } from "solid-js";
 import { navigate, Screen } from "../router";
 import { checkAuth } from "../stores/auth";
+import { connect } from "../stores/connection";
 
 const Splash: Component = () => {
   const [showSpinner, setShowSpinner] = createSignal(false);
@@ -13,6 +14,7 @@ const Splash: Component = () => {
     clearTimeout(timer);
 
     if (authed) {
+      connect().catch(() => {});
       navigate(Screen.RoomList);
     } else {
       navigate(Screen.Login);
