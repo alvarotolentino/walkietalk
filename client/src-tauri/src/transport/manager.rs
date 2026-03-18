@@ -3,10 +3,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::ws::{connect_ws, WsWriteTx};
+use walkietalk_shared::audio::AudioFrame;
 use walkietalk_shared::messages::{ClientMessage, ServerMessage};
+use crate::state::AppState;
 
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 const HEARTBEAT_TIMEOUT_SECS: u64 = 90; // 3 missed heartbeats
@@ -135,7 +137,17 @@ impl TransportManager {
                     Self::dispatch_text(&text, app, last_ack);
                 }
                 WsMessage::Binary(data) => {
-                    let _ = app.emit("audio_frame", data.to_vec());
+                    // Decode AudioFrame and push to playback jitter buffer
+                    if let Ok(frame) = AudioFrame::decode(&data) {
+                        let state = app.state::<AppState>();
+                        if let Ok(guard) = state.playback.try_lock() {
+                            if let Some(ref handle) = *guard {
+                                if let Err(e) = handle.push_frame(&frame) {
+                                    tracing::warn!("Playback push error: {e}");
+                                }
+                            }
+                        };
+                    }
                 }
                 WsMessage::Close(_) => {
                     tracing::info!("WebSocket closed by server");

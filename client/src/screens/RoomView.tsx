@@ -50,6 +50,7 @@ const RoomView: Component = () => {
   onCleanup(async () => {
     if (roomId()) {
       invoke("stop_audio_capture").catch(() => {});
+      invoke("stop_audio_playback").catch(() => {});
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();
@@ -122,6 +123,9 @@ const RoomView: Component = () => {
       startReceiving();
       triggerHaptic("rigid");
       announceFloor(`${data.display_name ?? "Someone"} is now speaking`);
+      invoke("start_audio_playback").catch((e: unknown) =>
+        console.error("start_audio_playback failed:", e)
+      );
     }
   });
 
@@ -138,6 +142,7 @@ const RoomView: Component = () => {
     } else {
       stopReceiving();
       announceFloor("Floor is now free.");
+      invoke("stop_audio_playback").catch(() => {});
     }
   });
 
@@ -162,6 +167,7 @@ const RoomView: Component = () => {
     } else {
       stopReceiving();
       announceFloor("Speaker timed out. Floor is now free.");
+      invoke("stop_audio_playback").catch(() => {});
     }
   });
 
@@ -185,6 +191,7 @@ const RoomView: Component = () => {
   const handleBack = async () => {
     if (roomId()) {
       invoke("stop_audio_capture").catch(() => {});
+      invoke("stop_audio_playback").catch(() => {});
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();

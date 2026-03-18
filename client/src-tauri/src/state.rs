@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::audio::capture::CaptureHandle;
+use crate::audio::playback::PlaybackHandle;
 use crate::transport::manager::TransportManager;
 
 /// User info cached after login.
@@ -30,6 +31,8 @@ pub struct AppState {
     pub active_rooms: RwLock<HashSet<String>>,
     /// Active audio capture handle (set when transmitting).
     pub capture: Mutex<Option<CaptureHandle>>,
+    /// Active audio playback handle (set when receiving).
+    pub playback: Mutex<Option<PlaybackHandle>>,
 }
 
 impl AppState {
@@ -41,6 +44,7 @@ impl AppState {
             transport: Mutex::new(None),
             active_rooms: RwLock::new(HashSet::new()),
             capture: Mutex::new(None),
+            playback: Mutex::new(None),
         }
     }
 

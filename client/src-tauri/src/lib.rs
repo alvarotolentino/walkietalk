@@ -46,6 +46,8 @@ pub fn run() {
             commands::settings::set_server_url,
             commands::audio::start_audio_capture,
             commands::audio::stop_audio_capture,
+            commands::audio::start_audio_playback,
+            commands::audio::stop_audio_playback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WalkieTalk");

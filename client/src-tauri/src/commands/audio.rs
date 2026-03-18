@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use tauri::{AppHandle, State};
 
-use crate::audio::capture;
+use crate::audio::{capture, playback};
 use crate::state::AppState;
 
 /// Deterministic hash of a string ID to a u64 (for AudioFrame room_id).
@@ -50,6 +50,34 @@ pub async fn stop_audio_capture(
 ) -> Result<(), String> {
     let mut cap = state.capture.lock().await;
     if let Some(handle) = cap.take() {
+        handle.stop();
+    }
+    Ok(())
+}
+
+/// Start audio playback. Called when another user is granted the floor.
+#[tauri::command]
+pub async fn start_audio_playback(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut pb = state.playback.lock().await;
+    // Stop any existing playback first
+    if let Some(handle) = pb.take() {
+        handle.stop();
+    }
+    let handle = playback::start_playback(app)?;
+    *pb = Some(handle);
+    Ok(())
+}
+
+/// Stop audio playback. Called when the speaking user releases/times out.
+#[tauri::command]
+pub async fn stop_audio_playback(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut pb = state.playback.lock().await;
+    if let Some(handle) = pb.take() {
         handle.stop();
     }
     Ok(())
