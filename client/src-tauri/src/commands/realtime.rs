@@ -19,7 +19,11 @@ pub async fn join_room_ws(
         room_id: RoomId(room_uuid),
     };
     t.send_text(&serde_json::to_string(&msg).map_err(|e| e.to_string())?)
-        .await
+        .await?;
+
+    // Track active room for rejoin on reconnect
+    state.active_rooms.write().await.insert(room_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -37,5 +41,9 @@ pub async fn leave_room_ws(
         room_id: RoomId(room_uuid),
     };
     t.send_text(&serde_json::to_string(&msg).map_err(|e| e.to_string())?)
-        .await
+        .await?;
+
+    // Remove from active rooms
+    state.active_rooms.write().await.remove(&room_id);
+    Ok(())
 }

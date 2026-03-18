@@ -21,13 +21,15 @@ pub async fn connect(
         .replace("http://", "ws://");
     let url = format!("{ws_url}/ws?token={token}");
 
+    let active_rooms: Vec<String> = state.active_rooms.read().await.iter().cloned().collect();
+
     let mut transport_lock = state.transport.lock().await;
     // Shutdown existing connection if any
     if let Some(t) = transport_lock.take() {
         t.shutdown().await;
     }
 
-    let manager = TransportManager::connect(url, app.clone()).await?;
+    let manager = TransportManager::connect(url, app.clone(), active_rooms).await?;
     *transport_lock = Some(manager);
 
     Ok(())
@@ -47,6 +49,5 @@ pub async fn reconnect(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Re-use the connect command
     connect(app, state).await
 }

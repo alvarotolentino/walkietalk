@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::transport::manager::TransportManager;
@@ -24,6 +25,8 @@ pub struct AppState {
     pub tokens: RwLock<Option<TokenPair>>,
     pub user: RwLock<Option<UserInfo>>,
     pub transport: Mutex<Option<TransportManager>>,
+    /// Room IDs currently joined via WebSocket (for rejoin on reconnect).
+    pub active_rooms: RwLock<HashSet<String>>,
 }
 
 impl AppState {
@@ -33,6 +36,7 @@ impl AppState {
             tokens: RwLock::new(None),
             user: RwLock::new(None),
             transport: Mutex::new(None),
+            active_rooms: RwLock::new(HashSet::new()),
         }
     }
 

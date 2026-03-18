@@ -1,14 +1,14 @@
 import { type Component, createMemo, createSignal, createEffect, Show, onCleanup } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { connectionState, reconnectAttempt } from "../stores/connection";
+import { connectionState, reconnectAttempt, reconnect } from "../stores/connection";
 
-export type ConnectionStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
+export type ConnectionStatus = "connected" | "connecting" | "reconnecting" | "disconnected" | "failed";
 
-const STATUS_CONFIG: Record<ConnectionStatus, { color: string; dot: string }> = {
-  connected: { color: "var(--color-connection-connected)", dot: "var(--color-presence-online)" },
-  connecting: { color: "var(--color-connection-connecting)", dot: "var(--color-connection-connecting)" },
-  reconnecting: { color: "var(--color-connection-reconnecting)", dot: "var(--color-connection-reconnecting)" },
-  disconnected: { color: "var(--color-connection-disconnected)", dot: "var(--color-connection-disconnected)" },
+const STATUS_CONFIG: Record<ConnectionStatus, { color: string }> = {
+  connected: { color: "var(--color-connection-connected)" },
+  connecting: { color: "var(--color-connection-connecting)" },
+  reconnecting: { color: "var(--color-connection-reconnecting)" },
+  disconnected: { color: "var(--color-connection-disconnected)" },
+  failed: { color: "var(--color-connection-disconnected)" },
 };
 
 const ConnectionBar: Component = () => {
@@ -20,7 +20,8 @@ const ConnectionBar: Component = () => {
       case "connected": return "Connected";
       case "connecting": return "Connecting…";
       case "reconnecting": return `Reconnecting… (attempt ${attempt()})`;
-      case "disconnected": return "Connection failed";
+      case "failed": return "Connection failed";
+      case "disconnected": return "Disconnected";
       default: return "";
     }
   });
@@ -68,9 +69,9 @@ const ConnectionBar: Component = () => {
           aria-hidden="true"
         />
         {label()}
-        <Show when={state() === "disconnected"}>
+        <Show when={state() === "disconnected" || state() === "failed"}>
           <button
-            onClick={() => invoke("reconnect", {})}
+            onClick={() => reconnect()}
             style={{
               "margin-left": "var(--space-2)",
               padding: "var(--space-1) var(--space-3)",
