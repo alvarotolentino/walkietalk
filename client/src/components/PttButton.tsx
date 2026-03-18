@@ -1,11 +1,13 @@
-import { type Component, createSignal, createMemo, Show, onCleanup } from "solid-js";
+import { type Component, createSignal, createMemo, createEffect, Show, onCleanup } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { isTransmitting, sendLevel, floorTimeRemaining } from "../stores/audio";
 import { connectionState } from "../stores/connection";
-import { floorHolder, members } from "../stores/activeRoom";
+import { floorHolder } from "../stores/activeRoom";
 import { user } from "../stores/auth";
 import VuMeter from "./VuMeter";
+import Countdown from "./Countdown";
 import { triggerHaptic } from "../utils/haptics";
+import { useTauriEvent } from "../hooks/useTauriEvent";
 
 export type PttState = "idle" | "requesting" | "transmitting" | "occupied" | "disconnected";
 
@@ -15,8 +17,35 @@ export interface PttButtonProps {
   isConnected: boolean;
 }
 
+const REQUEST_TIMEOUT_MS = 5000;
+
 const PttButton: Component<PttButtonProps> = (props) => {
   const [requesting, setRequesting] = createSignal(false);
+  let requestTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Clear requesting state when the floor is granted or denied
+  // (floor_granted → isTransmitting becomes true; floor_denied → floorHolder stays null)
+  createEffect(() => {
+    if (isTransmitting()) {
+      setRequesting(false);
+      clearRequestTimer();
+    }
+  });
+
+  function clearRequestTimer() {
+    if (requestTimer) {
+      clearTimeout(requestTimer);
+      requestTimer = null;
+    }
+  }
+
+  onCleanup(() => clearRequestTimer());
+
+  // Clear requesting when floor is denied by server
+  useTauriEvent("floor_denied", () => {
+    setRequesting(false);
+    clearRequestTimer();
+  });
 
   const pttState = createMemo<PttState>(() => {
     if (!props.isConnected || connectionState() !== "connected") return "disconnected";
@@ -50,10 +79,21 @@ const PttButton: Component<PttButtonProps> = (props) => {
 
     triggerHaptic("light");
     setRequesting(true);
+
+    // Safety timeout: if server never responds with granted/denied, reset
+    clearRequestTimer();
+    requestTimer = setTimeout(() => {
+      if (requesting()) {
+        setRequesting(false);
+        triggerHaptic("error");
+      }
+    }, REQUEST_TIMEOUT_MS);
+
     try {
       await invoke("request_floor", { roomId: props.roomId });
     } catch {
       setRequesting(false);
+      clearRequestTimer();
     }
   };
 
@@ -67,10 +107,28 @@ const PttButton: Component<PttButtonProps> = (props) => {
       }
     }
     setRequesting(false);
+    clearRequestTimer();
   };
 
   // The requesting flag is cleared when we transition to transmitting or idle
   // (the store update from floor_granted/denied event handles the actual state)
+
+  // Keyboard support: Space/Enter to toggle PTT (spec §9.10)
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (pttState() === "idle") {
+        handlePressStart();
+      }
+    }
+  };
+
+  const handleKeyUp = (e: KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      handlePressEnd();
+    }
+  };
 
   const ariaLabel = createMemo(() => {
     switch (pttState()) {
@@ -103,6 +161,8 @@ const PttButton: Component<PttButtonProps> = (props) => {
         onPointerDown={handlePressStart}
         onPointerUp={handlePressEnd}
         onPointerLeave={handlePressEnd}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
         onContextMenu={(e) => e.preventDefault()}
         style={{
           width: "140px",
@@ -141,6 +201,9 @@ const PttButton: Component<PttButtonProps> = (props) => {
       >
         {cfg().label}
       </span>
+      <Show when={pttState() === "transmitting"}>
+        <Countdown seconds={floorTimeRemaining()} />
+      </Show>
     </div>
   );
 };

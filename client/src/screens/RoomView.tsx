@@ -14,13 +14,25 @@ import {
   leaveRoomWs,
 } from "../stores/activeRoom";
 import { user } from "../stores/auth";
-import { isTransmitting, isReceiving, sendLevel, recvLevel, floorTimeRemaining } from "../stores/audio";
+import {
+  sendLevel,
+  recvLevel,
+  floorTimeRemaining,
+  startTransmitting,
+  stopTransmitting,
+  startReceiving,
+  stopReceiving,
+  updateSendLevel,
+  updateRecvLevel,
+  resetAudioState,
+} from "../stores/audio";
 import { connectionState } from "../stores/connection";
 import PttButton from "../components/PttButton";
 import FloorBanner from "../components/FloorBanner";
 import ConnectionBar from "../components/ConnectionBar";
 import MemberList from "../components/MemberList";
 import { useTauriEvent } from "../hooks/useTauriEvent";
+import { triggerHaptic } from "../utils/haptics";
 
 const RoomView: Component = () => {
   const params = currentParams();
@@ -38,8 +50,19 @@ const RoomView: Component = () => {
     if (roomId()) {
       await leaveRoomWs(roomId());
       clearActiveRoom();
+      resetAudioState();
     }
   });
+
+  // Helper: announce floor state changes to screen readers
+  function announceFloor(message: string) {
+    const el = document.getElementById("floor-announcements");
+    if (el) el.textContent = message;
+  }
+  function announceMember(message: string) {
+    const el = document.getElementById("member-announcements");
+    if (el) el.textContent = message;
+  }
 
   // Listen for Tauri events — payloads are parsed JSON objects from dispatch_text
   useTauriEvent("room_state", (data: any) => {
@@ -59,33 +82,85 @@ const RoomView: Component = () => {
         display_name: data.user.display_name,
         status: (data.user.status ?? "online").toLowerCase(),
       });
+      announceMember(`${data.user.display_name} joined the room`);
     }
   });
 
-  useTauriEvent("member_left", (data: any) => removeMember(data.user_id));
+  useTauriEvent("member_left", (data: any) => {
+    const member = members().find((m) => m.user_id === data.user_id);
+    removeMember(data.user_id);
+    if (member) announceMember(`${member.display_name} left the room`);
+  });
 
   useTauriEvent("presence_update", (data: any) =>
     updatePresence(data.user_id, (data.status ?? "online").toLowerCase())
   );
 
   useTauriEvent("floor_granted", (data: any) => {
-    // If the granted user_id matches our own, we are the speaker
     const granted = data.user_id;
-    if (granted === myUserId()) {
+    const me = user();
+    if (granted && me && granted === me.id) {
       setFloorHolderState(granted, "You");
+      startTransmitting();
+      triggerHaptic("heavy");
+      announceFloor("Floor granted. You are now speaking.");
     } else {
-      // Another user was granted — shouldn't normally happen via this event
       setFloorHolderState(granted, null);
     }
   });
 
   useTauriEvent("floor_occupied", (data: any) => {
     setFloorHolderState(data.speaker_id, data.display_name);
+    const me = user();
+    if (!me || data.speaker_id !== me.id) {
+      startReceiving();
+      triggerHaptic("rigid");
+      announceFloor(`${data.display_name ?? "Someone"} is now speaking`);
+    }
   });
 
-  useTauriEvent("floor_released", () => setFloorHolderState(null, null));
-  useTauriEvent("floor_denied", () => {});
-  useTauriEvent("floor_timeout", () => setFloorHolderState(null, null));
+  useTauriEvent("floor_released", (data: any) => {
+    const wasMe = data.user_id && user()?.id === data.user_id;
+    setFloorHolderState(null, null);
+    if (wasMe) {
+      stopTransmitting();
+      triggerHaptic("light");
+      announceFloor("Floor released. You stopped speaking.");
+    } else {
+      stopReceiving();
+      announceFloor("Floor is now free.");
+    }
+  });
+
+  useTauriEvent("floor_denied", (data: any) => {
+    triggerHaptic("error");
+    const reason = data.reason
+      ? `Floor denied: ${data.reason}`
+      : "Floor denied. Someone else is speaking.";
+    announceFloor(reason);
+  });
+
+  useTauriEvent("floor_timeout", (data: any) => {
+    const wasMe = data.user_id && user()?.id === data.user_id;
+    setFloorHolderState(null, null);
+    if (wasMe) {
+      stopTransmitting();
+      triggerHaptic("error");
+      announceFloor("Floor timed out. Your turn ended.");
+    } else {
+      stopReceiving();
+      announceFloor("Speaker timed out. Floor is now free.");
+    }
+  });
+
+  // Audio level events from Tauri (mic/speaker RMS)
+  useTauriEvent("audio_level", (data: any) => {
+    if (data.direction === "send") {
+      updateSendLevel(data.level ?? 0);
+    } else if (data.direction === "recv") {
+      updateRecvLevel(data.level ?? 0);
+    }
+  });
 
   const currentSpeaker = createMemo(() => {
     const holderId = floorHolder();
@@ -99,6 +174,7 @@ const RoomView: Component = () => {
     if (roomId()) {
       await leaveRoomWs(roomId());
       clearActiveRoom();
+      resetAudioState();
     }
     goBack();
   };
