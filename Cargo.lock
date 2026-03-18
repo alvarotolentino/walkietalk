@@ -6467,6 +6467,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "testcontainers",
  "tokio",
  "tokio-tungstenite",
  "tower-http 0.5.2",
