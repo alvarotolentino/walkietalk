@@ -1,20 +1,13 @@
 import { type Component, createSignal, onMount, For, Show } from "solid-js";
 import { navigate, goBack, Screen } from "../router";
-import { fetchPublicRooms, joinRoom } from "../stores/rooms";
+import { fetchPublicRooms, joinRoom, type Room } from "../stores/rooms";
 import Button from "../components/Button";
 import Badge from "../components/Badge";
 import Toast, { showToast } from "../components/Toast";
 
-interface PublicRoom {
-  id: string;
-  name: string;
-  member_count: number;
-  is_member: boolean;
-}
-
 const PublicRooms: Component = () => {
   const [search, setSearch] = createSignal("");
-  const [roomList, setRoomList] = createSignal<PublicRoom[]>([]);
+  const [roomList, setRoomList] = createSignal<Room[]>([]);
   const [loading, setLoading] = createSignal(false);
   let debounceTimer: number | undefined;
 

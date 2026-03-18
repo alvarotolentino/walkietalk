@@ -202,7 +202,7 @@ const RoomSettings: Component = () => {
           <h2 style={{ "font-size": "var(--text-lg)", "font-weight": "var(--font-semibold)", "margin-bottom": "var(--space-3)" }}>
             Members ({memberList().length}/500)
           </h2>
-          <MemberList members={memberList()} floorHolderId={null} />
+          <MemberList members={memberList()} floorHolderId={undefined} />
         </div>
 
         {/* Danger zone */}

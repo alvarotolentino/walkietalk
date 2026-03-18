@@ -22,7 +22,7 @@ const Profile: Component = () => {
   };
 
   const handleSaveUrl = () => {
-    setServerUrl(serverUrlLocal());
+    setServerUrl(serverUrl());
     showToast("Server URL updated.", "info");
   };
 

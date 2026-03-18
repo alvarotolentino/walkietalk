@@ -4,7 +4,7 @@ import Button from "./Button";
 export interface EmptyStateProps {
   title: string;
   description: string;
-  action?: { label: string; onClick: () => void };
+  action?: { label: string; onClick: () => void } | JSX.Element;
 }
 
 const EmptyState: Component<EmptyStateProps> = (props) => {
@@ -51,11 +51,14 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
         </p>
       </div>
       <Show when={props.action}>
-        {(action) => (
-          <Button variant="primary" onClick={action().onClick}>
-            {action().label}
-          </Button>
-        )}
+        {(action) => {
+          const a = action();
+          if (typeof a === "object" && a !== null && "label" in a && "onClick" in a) {
+            const btn = a as { label: string; onClick: () => void };
+            return <Button variant="primary" onClick={btn.onClick}>{btn.label}</Button>;
+          }
+          return a as JSX.Element;
+        }}
       </Show>
     </div>
   );

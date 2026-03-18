@@ -9,6 +9,7 @@ export interface Room {
   member_count: number;
   owner_id: string;
   invite_code?: string;
+  is_member?: boolean;
 }
 
 export interface RoomSettings {
