@@ -1,15 +1,19 @@
-import { type Component, onMount, onCleanup, Show, For, createMemo } from "solid-js";
+import { type Component, onMount, onCleanup, Show, createMemo } from "solid-js";
 import { navigate, goBack, currentParams, Screen } from "../router";
 import {
   members,
   floorHolder,
+  floorHolderName,
   setRoomState,
   addMember,
   removeMember,
   updatePresence,
-  setFloorHolder,
+  setFloorHolderState,
   clearActiveRoom,
+  joinRoomWs,
+  leaveRoomWs,
 } from "../stores/activeRoom";
+import { user } from "../stores/auth";
 import { isTransmitting, isReceiving, sendLevel, recvLevel, floorTimeRemaining } from "../stores/audio";
 import { connectionState } from "../stores/connection";
 import PttButton from "../components/PttButton";
@@ -17,12 +21,12 @@ import FloorBanner from "../components/FloorBanner";
 import ConnectionBar from "../components/ConnectionBar";
 import MemberList from "../components/MemberList";
 import { useTauriEvent } from "../hooks/useTauriEvent";
-import { joinRoomWs, leaveRoomWs } from "../stores/activeRoom";
 
 const RoomView: Component = () => {
   const params = currentParams();
   const roomId = () => params?.roomId ?? "";
   const roomName = () => params?.roomName ?? "Room";
+  const myUserId = () => user()?.id ?? "";
 
   onMount(async () => {
     if (roomId()) {
@@ -37,24 +41,58 @@ const RoomView: Component = () => {
     }
   });
 
-  // Listen for Tauri events
-  useTauriEvent("room_state", (data: any) => setRoomState(data));
-  useTauriEvent("member_joined", (data: any) => addMember(data));
+  // Listen for Tauri events — payloads are parsed JSON objects from dispatch_text
+  useTauriEvent("room_state", (data: any) => {
+    const memberList = (data.members ?? []).map((m: any) => ({
+      user_id: m.user_id,
+      display_name: m.display_name,
+      status: m.status?.toLowerCase() ?? "online",
+    }));
+    const holder = data.floor_holder ?? null;
+    setRoomState(memberList, holder);
+  });
+
+  useTauriEvent("member_joined", (data: any) => {
+    if (data.user) {
+      addMember({
+        user_id: data.user.user_id,
+        display_name: data.user.display_name,
+        status: (data.user.status ?? "online").toLowerCase(),
+      });
+    }
+  });
+
   useTauriEvent("member_left", (data: any) => removeMember(data.user_id));
+
   useTauriEvent("presence_update", (data: any) =>
-    updatePresence(data.user_id, data.status)
+    updatePresence(data.user_id, (data.status ?? "online").toLowerCase())
   );
-  useTauriEvent("floor_granted", () => setFloorHolder("self"));
-  useTauriEvent("floor_occupied", (data: any) => setFloorHolder(data.user_id, data.display_name));
-  useTauriEvent("floor_released", () => setFloorHolder(null));
+
+  useTauriEvent("floor_granted", (data: any) => {
+    // If the granted user_id matches our own, we are the speaker
+    const granted = data.user_id;
+    if (granted === myUserId()) {
+      setFloorHolderState(granted, "You");
+    } else {
+      // Another user was granted — shouldn't normally happen via this event
+      setFloorHolderState(granted, null);
+    }
+  });
+
+  useTauriEvent("floor_occupied", (data: any) => {
+    setFloorHolderState(data.speaker_id, data.display_name);
+  });
+
+  useTauriEvent("floor_released", () => setFloorHolderState(null, null));
   useTauriEvent("floor_denied", () => {});
-  useTauriEvent("floor_timeout", () => setFloorHolder(null));
+  useTauriEvent("floor_timeout", () => setFloorHolderState(null, null));
 
   const currentSpeaker = createMemo(() => {
-    const holder = floorHolder();
-    if (!holder) return null;
-    if (holder.userId === "self") return { name: "You", isSelf: true };
-    return { name: holder.displayName ?? "Someone", isSelf: false };
+    const holderId = floorHolder();
+    if (!holderId) return null;
+    const isSelf = holderId === myUserId();
+    const name = isSelf ? "You" : (floorHolderName() ?? "Someone");
+    return { name, isSelf };
   });
 
   const handleBack = async () => {
@@ -127,7 +165,7 @@ const RoomView: Component = () => {
 
       {/* Members */}
       <div class="scrollable" style={{ flex: "1", padding: "var(--space-4)" }}>
-        <MemberList members={members()} floorHolderId={floorHolder()?.userId ?? null} />
+        <MemberList members={members()} floorHolderId={floorHolder() ?? undefined} />
       </div>
 
       {/* SR live region for floor events */}

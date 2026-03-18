@@ -255,49 +255,59 @@ impl TransportManager {
     }
 
     /// Parse a server JSON message and emit the corresponding Tauri event.
+    /// Emits the parsed serde_json::Value so the frontend receives a proper JS object.
     fn dispatch_text(text: &str, app: &AppHandle, last_ack: &AtomicU64) {
-        let msg: ServerMessage = match serde_json::from_str(text) {
-            Ok(m) => m,
+        let value: serde_json::Value = match serde_json::from_str(text) {
+            Ok(v) => v,
             Err(e) => {
                 tracing::warn!("Failed to parse server message: {e}");
                 return;
             }
         };
 
+        // Also parse as ServerMessage for variant matching
+        let msg: ServerMessage = match serde_json::from_value(value.clone()) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("Unknown server message: {e}");
+                return;
+            }
+        };
+
         match &msg {
             ServerMessage::RoomState { .. } => {
-                let _ = app.emit("room_state", text);
+                let _ = app.emit("room_state", &value);
             }
             ServerMessage::FloorGranted { .. } => {
-                let _ = app.emit("floor_granted", text);
+                let _ = app.emit("floor_granted", &value);
             }
             ServerMessage::FloorDenied { .. } => {
-                let _ = app.emit("floor_denied", text);
+                let _ = app.emit("floor_denied", &value);
             }
             ServerMessage::FloorOccupied { .. } => {
-                let _ = app.emit("floor_occupied", text);
+                let _ = app.emit("floor_occupied", &value);
             }
             ServerMessage::FloorReleased { .. } => {
-                let _ = app.emit("floor_released", text);
+                let _ = app.emit("floor_released", &value);
             }
             ServerMessage::FloorTimeout { .. } => {
-                let _ = app.emit("floor_timeout", text);
+                let _ = app.emit("floor_timeout", &value);
             }
             ServerMessage::PresenceUpdate { .. } => {
-                let _ = app.emit("presence_update", text);
+                let _ = app.emit("presence_update", &value);
             }
             ServerMessage::MemberJoined { .. } => {
-                let _ = app.emit("member_joined", text);
+                let _ = app.emit("member_joined", &value);
             }
             ServerMessage::MemberLeft { .. } => {
-                let _ = app.emit("member_left", text);
+                let _ = app.emit("member_left", &value);
             }
             ServerMessage::HeartbeatAck { .. } => {
                 last_ack.store(now_secs(), Ordering::Relaxed);
             }
             ServerMessage::Error { code, message } => {
                 tracing::warn!("Server error {code}: {message}");
-                let _ = app.emit("server_error", text);
+                let _ = app.emit("server_error", &value);
             }
         }
     }
