@@ -52,6 +52,8 @@ impl TransportManager {
             let mut read_rx = read_rx;
             tokio::spawn(async move {
                 Self::read_loop(&mut read_rx, &app, &last_ack).await;
+                // Stop audio pipelines when connection drops
+                Self::stop_audio(&app).await;
                 if !shutdown_flag.load(Ordering::Relaxed) {
                     let _ = app.emit("connection_state", serde_json::json!({
                         "state": "disconnected",
@@ -251,6 +253,8 @@ impl TransportManager {
                     // Blocks until this reconnected session drops
                     Self::read_loop(&mut read_rx, &app, &last_ack).await;
                     hb.abort();
+                    // Stop audio pipelines when connection drops
+                    Self::stop_audio(&app).await;
 
                     if shutdown_flag.load(Ordering::Relaxed) {
                         return;
@@ -267,6 +271,23 @@ impl TransportManager {
                     tracing::warn!("Reconnect attempt {} failed: {e}", attempt + 1);
                     attempt += 1;
                 }
+            }
+        }
+    }
+
+    /// Stop audio capture and playback when the WS connection drops.
+    async fn stop_audio(app: &AppHandle) {
+        let state = app.state::<AppState>();
+        {
+            let mut cap = state.capture.lock().await;
+            if let Some(handle) = cap.take() {
+                handle.stop();
+            }
+        }
+        {
+            let mut pb = state.playback.lock().await;
+            if let Some(handle) = pb.take() {
+                handle.stop();
             }
         }
     }

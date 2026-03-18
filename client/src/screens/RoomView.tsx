@@ -1,4 +1,4 @@
-import { type Component, onMount, onCleanup, Show, createMemo } from "solid-js";
+import { type Component, onMount, onCleanup, Show, createMemo, createEffect } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { navigate, goBack, currentParams, Screen } from "../router";
 import {
@@ -54,6 +54,18 @@ const RoomView: Component = () => {
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();
+    }
+  });
+
+  // Stop audio pipelines when connection drops
+  createEffect(() => {
+    const state = connectionState();
+    if (state === "disconnected" || state === "reconnecting" || state === "failed") {
+      invoke("stop_audio_capture").catch(() => {});
+      invoke("stop_audio_playback").catch(() => {});
+      setFloorHolderState(null, null);
+      stopTransmitting();
+      stopReceiving();
     }
   });
 

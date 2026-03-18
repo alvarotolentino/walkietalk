@@ -117,10 +117,14 @@ impl PlaybackHandle {
         Ok(())
     }
 
-    /// Stop the playback stream.
+    /// Stop the playback stream and reset the Opus decoder.
     pub fn stop(self) {
         self.stop.store(true, Ordering::Relaxed);
         self.stream.0.pause().ok();
+        // Reset decoder so PLC state from this session doesn't leak into the next.
+        if let Ok(mut dec) = DECODER.lock() {
+            *dec = None;
+        }
     }
 }
 
