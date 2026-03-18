@@ -109,6 +109,11 @@ impl TransportManager {
             .map_err(|_| "Transport closed".to_string())
     }
 
+    /// Clone the write channel for use by the audio capture pipeline.
+    pub fn write_channel(&self) -> WsWriteTx {
+        self.write_tx.clone()
+    }
+
     /// Gracefully shut down the transport — stops reconnect loop.
     pub async fn shutdown(self) {
         self.shutdown_flag.store(true, Ordering::Relaxed);

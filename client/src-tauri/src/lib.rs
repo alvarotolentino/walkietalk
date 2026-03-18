@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod commands;
 pub mod http_client;
 pub mod state;
@@ -43,6 +44,8 @@ pub fn run() {
             commands::misc::play_sound,
             commands::settings::get_server_url,
             commands::settings::set_server_url,
+            commands::audio::start_audio_capture,
+            commands::audio::stop_audio_capture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WalkieTalk");

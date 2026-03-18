@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use tokio::sync::{Mutex, RwLock};
 
+use crate::audio::capture::CaptureHandle;
 use crate::transport::manager::TransportManager;
 
 /// User info cached after login.
@@ -27,6 +28,8 @@ pub struct AppState {
     pub transport: Mutex<Option<TransportManager>>,
     /// Room IDs currently joined via WebSocket (for rejoin on reconnect).
     pub active_rooms: RwLock<HashSet<String>>,
+    /// Active audio capture handle (set when transmitting).
+    pub capture: Mutex<Option<CaptureHandle>>,
 }
 
 impl AppState {
@@ -37,6 +40,7 @@ impl AppState {
             user: RwLock::new(None),
             transport: Mutex::new(None),
             active_rooms: RwLock::new(HashSet::new()),
+            capture: Mutex::new(None),
         }
     }
 

@@ -1,4 +1,5 @@
 import { type Component, onMount, onCleanup, Show, createMemo } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { navigate, goBack, currentParams, Screen } from "../router";
 import {
   members,
@@ -48,6 +49,7 @@ const RoomView: Component = () => {
 
   onCleanup(async () => {
     if (roomId()) {
+      invoke("stop_audio_capture").catch(() => {});
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();
@@ -104,6 +106,10 @@ const RoomView: Component = () => {
       startTransmitting();
       triggerHaptic("heavy");
       announceFloor("Floor granted. You are now speaking.");
+      // Start audio capture pipeline
+      invoke("start_audio_capture", { roomId: roomId(), userId: me.id }).catch((e: unknown) =>
+        console.error("start_audio_capture failed:", e)
+      );
     } else {
       setFloorHolderState(granted, null);
     }
@@ -126,6 +132,9 @@ const RoomView: Component = () => {
       stopTransmitting();
       triggerHaptic("light");
       announceFloor("Floor released. You stopped speaking.");
+      invoke("stop_audio_capture").catch((e: unknown) =>
+        console.error("stop_audio_capture failed:", e)
+      );
     } else {
       stopReceiving();
       announceFloor("Floor is now free.");
@@ -147,6 +156,9 @@ const RoomView: Component = () => {
       stopTransmitting();
       triggerHaptic("error");
       announceFloor("Floor timed out. Your turn ended.");
+      invoke("stop_audio_capture").catch((e: unknown) =>
+        console.error("stop_audio_capture failed:", e)
+      );
     } else {
       stopReceiving();
       announceFloor("Speaker timed out. Floor is now free.");
@@ -172,6 +184,7 @@ const RoomView: Component = () => {
 
   const handleBack = async () => {
     if (roomId()) {
+      invoke("stop_audio_capture").catch(() => {});
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();
