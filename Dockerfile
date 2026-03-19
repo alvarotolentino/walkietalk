@@ -1,8 +1,8 @@
 # Multi-stage build for WalkieTalk Rust services
-FROM rust:1.82-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 WORKDIR /app
 COPY . .
-RUN cargo build --release
+RUN cargo build --release -p walkietalk-auth -p walkietalk-signaling -p walkietalk-zmq-proxy
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \

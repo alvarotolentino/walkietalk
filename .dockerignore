@@ -1,4 +1,7 @@
 target/
+client/target-dev2/
+client/dist/
+client/node_modules/
 .env
 *.log
 docs/
@@ -6,3 +9,7 @@ scripts/
 .git/
 .gitignore
 .dockerignore
+.vscode/
+
+integration-tests/
+tests/
