@@ -32,8 +32,6 @@ const Button: Component<ButtonProps> = (props) => {
     "user-select": "none",
     "-webkit-user-select": "none",
     width: props.fullWidth ? "100%" : "auto",
-    opacity: (props.disabled || props.loading) ? "0.5" : "1",
-    "pointer-events": (props.disabled || props.loading) ? "none" : "auto",
   };
 
   const variantStyles: Record<string, JSX.CSSProperties> = {
@@ -55,12 +53,19 @@ const Button: Component<ButtonProps> = (props) => {
     },
   };
 
+  const isDisabled = () => props.disabled || props.loading;
+
   return (
     <button
       type={props.type ?? "button"}
-      disabled={props.disabled || props.loading}
+      disabled={isDisabled()}
       onClick={props.onClick}
-      style={{ ...baseStyle, ...variantStyles[variant()] }}
+      style={{
+        ...baseStyle,
+        ...variantStyles[variant()],
+        opacity: isDisabled() ? "0.5" : "1",
+        "pointer-events": isDisabled() ? "none" : "auto",
+      }}
       aria-busy={props.loading}
     >
       <Show when={props.loading}>

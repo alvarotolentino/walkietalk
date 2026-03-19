@@ -47,6 +47,12 @@ const PttButton: Component<PttButtonProps> = (props) => {
     clearRequestTimer();
   });
 
+  // Also clear requesting on server errors (e.g. "not in this room")
+  useTauriEvent("server_error", () => {
+    setRequesting(false);
+    clearRequestTimer();
+  });
+
   const pttState = createMemo<PttState>(() => {
     if (!props.isConnected || connectionState() !== "connected") return "disconnected";
     if (isTransmitting()) return "transmitting";
@@ -147,7 +153,6 @@ const PttButton: Component<PttButtonProps> = (props) => {
         "flex-direction": "column",
         "align-items": "center",
         gap: "var(--space-3)",
-        "padding-bottom": "env(safe-area-inset-bottom, var(--space-4))",
       }}
     >
       <Show when={pttState() === "transmitting"}>

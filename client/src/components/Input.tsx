@@ -64,6 +64,8 @@ const Input: Component<InputProps> = (props) => {
             "border-radius": "var(--radius-md)",
             "font-size": "var(--text-base)",
             "font-family": "var(--font-family)",
+            opacity: 1,
+            "-webkit-text-fill-color": "var(--color-text-primary)",
             outline: "none",
             transition: "border-color var(--duration-fast) var(--ease-default)",
             ...props.style,
