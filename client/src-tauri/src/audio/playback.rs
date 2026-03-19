@@ -10,8 +10,8 @@ use walkietalk_shared::audio::AudioFrame;
 
 /// Samples per frame at 16 kHz mono and 20 ms frame duration.
 const FRAME_SAMPLES: usize = 320;
-/// Sample rate in Hz.
-const SAMPLE_RATE: u32 = 16_000;
+/// Target sample rate for Opus decoding.
+const TARGET_SAMPLE_RATE: u32 = 16_000;
 /// Jitter buffer target: 3 frames = 60 ms.
 const JITTER_BUFFER_FRAMES: usize = 3;
 /// Minimum interval between audio_level events emitted to the WebView.
@@ -138,9 +138,23 @@ pub fn start_playback(app: AppHandle) -> Result<PlaybackHandle, String> {
         .default_output_device()
         .ok_or_else(|| "No audio output device found".to_string())?;
 
+    // Query the device's default output config.
+    let default_cfg = device
+        .default_output_config()
+        .map_err(|e| format!("Failed to get default output config: {e}"))?;
+
+    let native_sample_rate = default_cfg.sample_rate().0;
+    let native_channels = default_cfg.channels();
+    tracing::info!(
+        "Audio output device: {:?}, native config: {}Hz {}ch",
+        device.name().unwrap_or_default(),
+        native_sample_rate,
+        native_channels
+    );
+
     let config = cpal::StreamConfig {
-        channels: 1,
-        sample_rate: cpal::SampleRate(SAMPLE_RATE),
+        channels: native_channels,
+        sample_rate: cpal::SampleRate(native_sample_rate),
         buffer_size: cpal::BufferSize::Default,
     };
 
@@ -151,27 +165,38 @@ pub fn start_playback(app: AppHandle) -> Result<PlaybackHandle, String> {
     let app_clone = app.clone();
     let mut last_level_emit = Instant::now();
 
+    // Pre-compute resampling parameters.
+    let need_resample = native_sample_rate != TARGET_SAMPLE_RATE;
+    let upsample_ratio = native_sample_rate as f64 / TARGET_SAMPLE_RATE as f64;
+    let ch = native_channels as usize;
+
+    // Resampler state (lives in the output callback closure).
+    let mut resample_buf: Vec<f32> = Vec::new();
+    let mut resample_pos: f64 = 0.0;
+    let mut residual: Vec<f32> = Vec::new();
+
     let stream = device
         .build_output_stream(
             &config,
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
-                let mut remaining = data.len();
-                let mut offset = 0;
+                // Number of mono samples we need to fill the output buffer.
+                let output_mono_samples = data.len() / ch;
+                let mut mono_out: Vec<f32> = Vec::with_capacity(output_mono_samples);
 
-                while remaining > 0 {
+                // Drain residual from previous callback first.
+                if !residual.is_empty() {
+                    let take = output_mono_samples.min(residual.len());
+                    mono_out.extend_from_slice(&residual[..take]);
+                    residual.drain(..take);
+                }
+
+                // Pull frames from jitter buffer until we have enough.
+                while mono_out.len() < output_mono_samples {
                     let frame = {
                         let mut buf = buf_reader.lock().unwrap();
-                        if buf.len() > 0 {
-                            buf.pop().unwrap_or_else(|| vec![0.0; FRAME_SAMPLES])
-                        } else {
-                            vec![0.0; FRAME_SAMPLES]
-                        }
+                        buf.pop()
                     };
-
-                    let copy_len = remaining.min(frame.len());
-                    data[offset..offset + copy_len].copy_from_slice(&frame[..copy_len]);
-                    offset += copy_len;
-                    remaining -= copy_len;
+                    let frame = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
 
                     // Emit audio level (throttled)
                     if last_level_emit.elapsed() >= LEVEL_EMIT_INTERVAL {
@@ -184,6 +209,40 @@ pub fn start_playback(app: AppHandle) -> Result<PlaybackHandle, String> {
                                 "level": rms,
                             }),
                         );
+                    }
+
+                    if need_resample {
+                        // Upsample from 16 kHz to native rate using linear interp.
+                        resample_buf.clear();
+                        let in_len = frame.len();
+                        while resample_pos < in_len as f64 {
+                            let idx = resample_pos as usize;
+                            let frac = resample_pos - idx as f64;
+                            let s0 = frame[idx.min(in_len - 1)];
+                            let s1 = frame[(idx + 1).min(in_len - 1)];
+                            resample_buf.push(s0 + (s1 - s0) * frac as f32);
+                            resample_pos += 1.0 / upsample_ratio;
+                        }
+                        resample_pos -= in_len as f64;
+                        mono_out.extend_from_slice(&resample_buf);
+                    } else {
+                        mono_out.extend_from_slice(&frame);
+                    }
+                }
+
+                // If we generated more than needed, store residual.
+                if mono_out.len() > output_mono_samples {
+                    residual.extend_from_slice(&mono_out[output_mono_samples..]);
+                    mono_out.truncate(output_mono_samples);
+                }
+
+                // Write to output: duplicate mono to all channels.
+                for (i, sample) in mono_out.iter().enumerate() {
+                    for c in 0..ch {
+                        let idx = i * ch + c;
+                        if idx < data.len() {
+                            data[idx] = *sample;
+                        }
                     }
                 }
             },

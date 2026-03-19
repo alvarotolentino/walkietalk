@@ -12,8 +12,8 @@ use walkietalk_shared::audio::AudioFrame;
 
 /// Samples per frame at 16 kHz mono and 20 ms frame duration.
 const FRAME_SAMPLES: usize = 320;
-/// Sample rate in Hz.
-const SAMPLE_RATE: u32 = 16_000;
+/// Target sample rate for Opus encoding.
+const TARGET_SAMPLE_RATE: u32 = 16_000;
 /// Opus bitrate in bits per second (VOIP 16 kbps).
 const OPUS_BITRATE: i32 = 16_000;
 /// Max encoded frame size in bytes (Opus guarantees under this for 20ms at 16kbps).
@@ -66,9 +66,25 @@ pub fn start_capture(
         .default_input_device()
         .ok_or_else(|| "No audio input device found".to_string())?;
 
+    // Query the device's default input config instead of hardcoding 16 kHz.
+    // Most devices (especially on Windows/WASAPI) support 44100 or 48000 Hz
+    // but not 16000 Hz directly. We'll resample in the encode loop.
+    let default_cfg = device
+        .default_input_config()
+        .map_err(|e| format!("Failed to get default input config: {e}"))?;
+
+    let native_sample_rate = default_cfg.sample_rate().0;
+    let native_channels = default_cfg.channels();
+    tracing::info!(
+        "Audio input device: {:?}, native config: {}Hz {}ch",
+        device.name().unwrap_or_default(),
+        native_sample_rate,
+        native_channels
+    );
+
     let config = cpal::StreamConfig {
-        channels: 1,
-        sample_rate: cpal::SampleRate(SAMPLE_RATE),
+        channels: native_channels,
+        sample_rate: cpal::SampleRate(native_sample_rate),
         buffer_size: cpal::BufferSize::Default,
     };
 
@@ -98,6 +114,11 @@ pub fn start_capture(
 
     let stream = SendStream(stream);
 
+    // Capture the tokio runtime handle before spawning — the new OS thread
+    // won't inherit it automatically.
+    let rt_handle = tokio::runtime::Handle::try_current()
+        .map_err(|_| "No tokio runtime available to start audio capture".to_string())?;
+
     // Spawn the encoding task on a dedicated thread (Opus encoder is not Send
     // across await points and we need real-time guarantees).
     let stop_enc = stop.clone();
@@ -111,6 +132,9 @@ pub fn start_capture(
                 room_id_u64,
                 speaker_id_u32,
                 write_tx,
+                native_sample_rate,
+                native_channels,
+                rt_handle,
             );
         })
         .map_err(|e| format!("Failed to spawn encode thread: {e}"))?;
@@ -118,7 +142,7 @@ pub fn start_capture(
     Ok(CaptureHandle { stream, stop: stop_flag })
 }
 
-/// Encoding loop: buffers 320 samples → Opus encode → AudioFrame → WS binary.
+/// Encoding loop: buffers samples → downmix → resample → Opus encode → WS binary.
 fn encode_loop(
     mut pcm_rx: mpsc::UnboundedReceiver<Vec<f32>>,
     stop: Arc<AtomicBool>,
@@ -126,6 +150,9 @@ fn encode_loop(
     room_id_u64: u64,
     speaker_id_u32: u32,
     write_tx: WsWriteTx,
+    native_sample_rate: u32,
+    native_channels: u16,
+    rt: tokio::runtime::Handle,
 ) {
     // Create Opus encoder: 16 kHz, mono, VOIP application.
     let encoder = match audiopus::coder::Encoder::new(
@@ -146,25 +173,71 @@ fn encode_loop(
     };
 
     let sequence = AtomicU32::new(0);
+    // Buffer in mono 16 kHz samples (after downmix + resample).
     let mut pcm_buffer: Vec<f32> = Vec::with_capacity(FRAME_SAMPLES * 2);
     let mut encode_buf = [0u8; MAX_ENCODED_BYTES];
     let mut last_level_emit = Instant::now();
 
-    // Create a tokio runtime handle for sending binary frames.
-    // The write_tx.send() is an async fn, so we need a runtime context.
-    let rt = match tokio::runtime::Handle::try_current() {
-        Ok(h) => h,
-        Err(_) => {
-            tracing::error!("No tokio runtime available for encode loop");
-            return;
-        }
-    };
+    let need_downmix = native_channels > 1;
+    let need_resample = native_sample_rate != TARGET_SAMPLE_RATE;
+    let resample_ratio = TARGET_SAMPLE_RATE as f64 / native_sample_rate as f64;
+
+    // Fractional resample accumulator for linear interpolation.
+    let mut resample_pos: f64 = 0.0;
+    // Previous mono sample for interpolation across chunk boundaries.
+    let mut prev_sample: f32 = 0.0;
 
     while !stop.load(Ordering::Relaxed) {
         // Block on receiving PCM data with a short timeout.
         match pcm_rx.try_recv() {
             Ok(samples) => {
-                pcm_buffer.extend_from_slice(&samples);
+                // Step 1: Downmix to mono if multi-channel.
+                let mono: Vec<f32> = if need_downmix {
+                    let ch = native_channels as usize;
+                    samples
+                        .chunks_exact(ch)
+                        .map(|frame| frame.iter().sum::<f32>() / ch as f32)
+                        .collect()
+                } else {
+                    samples
+                };
+
+                // Step 2: Resample from native rate to 16 kHz if needed.
+                if need_resample {
+                    // Linear interpolation resampler.
+                    let input = &mono;
+                    let in_len = input.len();
+                    if in_len == 0 {
+                        continue;
+                    }
+                    while resample_pos < in_len as f64 {
+                        let idx = resample_pos as usize;
+                        let frac = resample_pos - idx as f64;
+                        let s0 = if idx == 0 && resample_pos < 1.0 {
+                            prev_sample
+                        } else if idx < in_len {
+                            input[idx]
+                        } else {
+                            break;
+                        };
+                        let s1 = if idx + 1 < in_len {
+                            input[idx + 1]
+                        } else if idx < in_len {
+                            input[idx]
+                        } else {
+                            break;
+                        };
+                        let interpolated = s0 + (s1 - s0) * frac as f32;
+                        pcm_buffer.push(interpolated);
+                        resample_pos += 1.0 / resample_ratio;
+                    }
+                    resample_pos -= in_len as f64;
+                    if let Some(&last) = mono.last() {
+                        prev_sample = last;
+                    }
+                } else {
+                    pcm_buffer.extend_from_slice(&mono);
+                }
             }
             Err(mpsc::error::TryRecvError::Empty) => {
                 std::thread::sleep(Duration::from_millis(2));
