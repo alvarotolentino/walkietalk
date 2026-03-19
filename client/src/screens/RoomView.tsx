@@ -5,6 +5,7 @@ import {
   members,
   floorHolder,
   floorHolderName,
+  lockKey,
   setRoomState,
   addMember,
   removeMember,
@@ -27,7 +28,7 @@ import {
   updateRecvLevel,
   resetAudioState,
 } from "../stores/audio";
-import { connectionState } from "../stores/connection";
+import { connectionState, connect } from "../stores/connection";
 import PttButton from "../components/PttButton";
 import FloorBanner from "../components/FloorBanner";
 import ConnectionBar from "../components/ConnectionBar";
@@ -43,7 +44,19 @@ const RoomView: Component = () => {
 
   onMount(async () => {
     if (roomId()) {
-      await joinRoomWs(roomId());
+      // Ensure WS is connected before joining (login fires connect() fire-and-forget)
+      if (connectionState() !== "connected") {
+        try {
+          await connect();
+        } catch {
+          return;
+        }
+      }
+      try {
+        await joinRoomWs(roomId());
+      } catch (e) {
+        console.error("Failed to join room:", e);
+      }
     }
   });
 
@@ -81,13 +94,19 @@ const RoomView: Component = () => {
 
   // Listen for Tauri events — payloads are parsed JSON objects from dispatch_text
   useTauriEvent("room_state", (data: any) => {
+    console.log("[WS] room_state", data);
     const memberList = (data.members ?? []).map((m: any) => ({
       user_id: m.user_id,
       display_name: m.display_name,
       status: m.status?.toLowerCase() ?? "online",
     }));
     const holder = data.floor_holder ?? null;
-    setRoomState(memberList, holder);
+    const key = data.lock_key ?? null;
+    setRoomState(memberList, holder, key);
+  });
+
+  useTauriEvent("server_error", (data: any) => {
+    console.error("[WS] server_error", data);
   });
 
   useTauriEvent("member_joined", (data: any) => {
@@ -112,6 +131,7 @@ const RoomView: Component = () => {
   );
 
   useTauriEvent("floor_granted", (data: any) => {
+    console.log("[WS] floor_granted", data, "me:", user()?.id);
     const granted = data.user_id;
     const me = user();
     if (granted && me && granted === me.id) {
@@ -119,8 +139,8 @@ const RoomView: Component = () => {
       startTransmitting();
       triggerHaptic("heavy");
       announceFloor("Floor granted. You are now speaking.");
-      // Start audio capture pipeline
-      invoke("start_audio_capture", { roomId: roomId(), userId: me.id }).catch((e: unknown) =>
+      // Start audio capture pipeline with lock_key as wire room ID
+      invoke("start_audio_capture", { roomId: roomId(), userId: me.id, lockKey: lockKey() }).catch((e: unknown) =>
         console.error("start_audio_capture failed:", e)
       );
     } else {

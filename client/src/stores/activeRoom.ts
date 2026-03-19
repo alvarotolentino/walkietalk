@@ -10,15 +10,18 @@ export interface ActiveMember {
 const [members, setMembers] = createSignal<ActiveMember[]>([]);
 const [floorHolder, setFloorHolder] = createSignal<string | null>(null);
 const [floorHolderName, setFloorHolderName] = createSignal<string | null>(null);
+const [lockKey, setLockKey] = createSignal<number | null>(null);
 
-export { members, floorHolder, floorHolderName };
+export { members, floorHolder, floorHolderName, lockKey };
 
 export function setRoomState(
   memberList: ActiveMember[],
   holder: string | null,
+  key: number | null,
 ) {
   setMembers(memberList);
   setFloorHolder(holder);
+  if (key != null) setLockKey(key);
   if (holder) {
     const m = memberList.find((m) => m.user_id === holder);
     setFloorHolderName(m?.display_name ?? null);
@@ -60,6 +63,7 @@ export function clearActiveRoom() {
   setMembers([]);
   setFloorHolder(null);
   setFloorHolderName(null);
+  setLockKey(null);
 }
 
 export async function joinRoomWs(roomId: string): Promise<void> {

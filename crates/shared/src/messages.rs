@@ -30,6 +30,7 @@ pub enum ServerMessage {
         room_id: RoomId,
         members: Vec<MemberInfo>,
         floor_holder: Option<UserId>,
+        lock_key: i64,
     },
     FloorGranted {
         room_id: RoomId,
@@ -154,6 +155,7 @@ mod tests {
                     status: PresenceStatus::Online,
                 }],
                 floor_holder: None,
+                lock_key: 1,
             },
             ServerMessage::FloorGranted { room_id, user_id },
             ServerMessage::FloorDenied {

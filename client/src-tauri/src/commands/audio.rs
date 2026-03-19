@@ -14,16 +14,17 @@ fn hash_to_u64(s: &str) -> u64 {
 
 /// Start audio capture for the given room. Called when floor is granted.
 ///
-/// Accepts string IDs (matching the WebSocket protocol) and hashes them
-/// to the numeric values used in AudioFrame headers.
+/// `lock_key` is the server-assigned wire room ID used in AudioFrame headers.
+/// `user_id` is hashed to a numeric speaker_id for the AudioFrame header.
 #[tauri::command]
 pub async fn start_audio_capture(
-    room_id: String,
+    _room_id: String,
     user_id: String,
+    lock_key: i64,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let room_id_u64 = hash_to_u64(&room_id);
+    let room_id_u64 = lock_key as u64;
     let speaker_id_u32 = hash_to_u64(&user_id) as u32;
     // Stop any existing capture first.
     let mut cap = state.capture.lock().await;
@@ -35,7 +36,7 @@ pub async fn start_audio_capture(
     let write_tx = {
         let transport = state.transport.lock().await;
         let t = transport.as_ref().ok_or("Not connected")?;
-        t.write_channel()
+        t.write_channel().await
     };
 
     let handle = capture::start_capture(app, room_id_u64, speaker_id_u32, write_tx)?;

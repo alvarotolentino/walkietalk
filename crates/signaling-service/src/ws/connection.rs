@@ -104,10 +104,11 @@ async fn handle_text_message(
     conn_state: &mut ConnectionState,
     state: &Arc<AppState>,
 ) {
+    tracing::info!(user_id = %conn_state.user_id, "<-- received text frame: {}", &text[..text.len().min(200)]);
     let msg: ClientMessage = match serde_json::from_str(text) {
         Ok(m) => m,
         Err(e) => {
-            tracing::debug!(text, "invalid ClientMessage: {e}");
+            tracing::warn!(text, "invalid ClientMessage: {e}");
             send_to_client(
                 &conn_state.tx,
                 &ServerMessage::Error {
@@ -173,6 +174,7 @@ async fn handle_join_room(
     };
 
     if !is_member {
+        tracing::warn!(%user_id, %room_id, "join_room REJECTED: not a room member");
         send_to_client(
             &conn_state.tx,
             &ServerMessage::Error {
@@ -236,6 +238,9 @@ async fn handle_join_room(
 
     let floor_holder = state.floor_manager.get_holder(&room_id);
 
+    // Resolve lock_key for the client (needed for audio frame headers)
+    let lock_key = conn_state.lock_keys.get(&room_id).copied().unwrap_or(0);
+
     // Send ROOM_STATE to the joining client
     send_to_client(
         &conn_state.tx,
@@ -243,6 +248,7 @@ async fn handle_join_room(
             room_id,
             members: members.clone(),
             floor_holder,
+            lock_key,
         },
     );
 
@@ -270,7 +276,7 @@ async fn handle_join_room(
         },
     );
 
-    tracing::debug!(%user_id, %room_id, "joined room via WS");
+    tracing::info!(%user_id, %room_id, "joined room via WS");
 }
 
 // ---------------------------------------------------------------------------
@@ -328,8 +334,10 @@ async fn handle_floor_request(
     state: &Arc<AppState>,
 ) {
     let user_id = conn_state.user_id;
+    tracing::info!(%user_id, %room_id, joined_rooms = ?conn_state.joined_rooms.iter().collect::<Vec<_>>(), "floor_request received");
 
     if !conn_state.joined_rooms.contains(&room_id) {
+        tracing::warn!(%user_id, %room_id, "floor_request REJECTED: not in this room");
         send_to_client(
             &conn_state.tx,
             &ServerMessage::Error {
@@ -426,6 +434,7 @@ async fn handle_floor_request(
     {
         Ok(true) => {
             // Floor granted
+            tracing::info!(%room_id, %user_id, "floor GRANTED → sending FloorGranted");
             send_to_client(
                 &conn_state.tx,
                 &ServerMessage::FloorGranted { room_id, user_id },
