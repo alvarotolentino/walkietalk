@@ -1,11 +1,13 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
+const port = parseInt(process.env.VITE_PORT || "1420");
+
 export default defineConfig({
   plugins: [solid()],
   clearScreen: false,
   server: {
-    port: 1420,
+    port,
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],

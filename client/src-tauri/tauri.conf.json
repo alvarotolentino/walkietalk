@@ -23,8 +23,5 @@
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss: http://localhost:*"
     }
-  },
-  "plugins": {
-    "store": {}
   }
 }

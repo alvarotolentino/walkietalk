@@ -1,0 +1,16 @@
+{
+  "build": {
+    "devUrl": "http://localhost:1421"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "WalkieTalk (2)",
+        "width": 390,
+        "height": 844,
+        "resizable": false,
+        "fullscreen": false
+      }
+    ]
+  }
+}
