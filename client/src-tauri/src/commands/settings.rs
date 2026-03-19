@@ -23,3 +23,24 @@ pub async fn set_server_url(
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn get_signaling_url(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.signaling_base_url().await)
+}
+
+#[tauri::command]
+pub async fn set_signaling_url(
+    url: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    *state.signaling_url.write().await = url.clone();
+
+    if let Ok(store) = app.store("settings.json") {
+        let _ = store.set("signaling_url", serde_json::json!(url));
+        let _ = store.save();
+    }
+
+    Ok(())
+}

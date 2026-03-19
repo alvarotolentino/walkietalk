@@ -13,9 +13,9 @@ pub async fn connect(
         .await
         .ok_or_else(|| "Not authenticated".to_string())?;
 
-    let base = state.base_url().await;
+    let base = state.signaling_base_url().await;
 
-    // Build WebSocket URL from the HTTP base
+    // Build WebSocket URL from the signaling HTTP base
     let ws_url = base
         .replace("https://", "wss://")
         .replace("http://", "ws://");

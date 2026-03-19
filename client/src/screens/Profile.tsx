@@ -1,7 +1,7 @@
 import { type Component, createSignal } from "solid-js";
 import { goBack } from "../router";
 import { user, logout } from "../stores/auth";
-import { getServerUrl, setServerUrl } from "../stores/settings";
+import { getServerUrl, setServerUrl, getSignalingUrl, setSignalingUrl } from "../stores/settings";
 import Avatar from "../components/Avatar";
 import Button from "../components/Button";
 import Input from "../components/Input";
@@ -15,6 +15,7 @@ const Profile: Component = () => {
   const [chirpEnabled, setChirpEnabled] = createSignal(true);
   const [hapticsEnabled, setHapticsEnabled] = createSignal(true);
   const [serverUrl, setServerUrlLocal] = createSignal(getServerUrl());
+  const [signalingUrlVal, setSignalingUrlLocal] = createSignal(getSignalingUrl());
 
   const handleLogout = async () => {
     await logout();
@@ -23,7 +24,8 @@ const Profile: Component = () => {
 
   const handleSaveUrl = () => {
     setServerUrl(serverUrl());
-    showToast("Server URL updated.", "info");
+    setSignalingUrl(signalingUrlVal());
+    showToast("Server URLs updated.", "info");
   };
 
   return (
@@ -73,9 +75,15 @@ const Profile: Component = () => {
           <div style={{ display: "flex", "flex-direction": "column", gap: "var(--space-4)" }}>
             <div>
               <Input
-                label="Server URL"
+                label="Auth URL"
                 value={serverUrl()}
                 onInput={setServerUrlLocal}
+              />
+              <Input
+                label="Signaling URL"
+                value={signalingUrlVal()}
+                onInput={setSignalingUrlLocal}
+                style={{ "margin-top": "var(--space-2)" }}
               />
               <button
                 onClick={handleSaveUrl}

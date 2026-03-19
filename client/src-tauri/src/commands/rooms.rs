@@ -37,7 +37,7 @@ pub struct RoomMember {
 #[tauri::command]
 pub async fn get_rooms(state: State<'_, AppState>) -> Result<Vec<Room>, String> {
     let http = HttpClient::new();
-    let req = http.get(&state, "/rooms").await?;
+    let req = http.sig_get(&state, "/rooms").await?;
     http.send_json(req).await
 }
 
@@ -50,7 +50,7 @@ pub async fn create_room(
 ) -> Result<Room, String> {
     let http = HttpClient::new();
     let req = http
-        .post(&state, "/rooms")
+        .sig_post(&state, "/rooms")
         .await?
         .json(&serde_json::json!({
             "name": name,
@@ -67,7 +67,7 @@ pub async fn join_by_code(
 ) -> Result<Room, String> {
     let http = HttpClient::new();
     let req = http
-        .post(&state, "/rooms/join")
+        .sig_post(&state, "/rooms/join")
         .await?
         .json(&serde_json::json!({ "invite_code": code }));
     http.send_json(req).await
@@ -80,7 +80,7 @@ pub async fn join_room(
 ) -> Result<Room, String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}/join");
-    let req = http.post(&state, &path).await?;
+    let req = http.sig_post(&state, &path).await?.json(&serde_json::json!({}));
     http.send_json(req).await
 }
 
@@ -91,7 +91,7 @@ pub async fn leave_room(
 ) -> Result<(), String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}/leave");
-    let req = http.post(&state, &path).await?;
+    let req = http.sig_post(&state, &path).await?;
     http.send_empty(req).await
 }
 
@@ -107,7 +107,7 @@ pub async fn get_public_rooms(
         let encoded = urlencoding::encode(&search);
         format!("/rooms/public?search={encoded}")
     };
-    let req = http.get(&state, &path).await?;
+    let req = http.sig_get(&state, &path).await?;
     http.send_json(req).await
 }
 
@@ -118,7 +118,7 @@ pub async fn get_room_settings(
 ) -> Result<RoomSettings, String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}");
-    let req = http.get(&state, &path).await?;
+    let req = http.sig_get(&state, &path).await?;
     http.send_json(req).await
 }
 
@@ -133,7 +133,7 @@ pub async fn update_room(
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}");
     let req = http
-        .put(&state, &path)
+        .sig_put(&state, &path)
         .await?
         .json(&serde_json::json!({
             "name": name,
@@ -150,7 +150,7 @@ pub async fn delete_room(
 ) -> Result<(), String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}");
-    let req = http.delete(&state, &path).await?;
+    let req = http.sig_delete(&state, &path).await?;
     http.send_empty(req).await
 }
 
@@ -161,7 +161,7 @@ pub async fn regenerate_invite(
 ) -> Result<String, String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}/invite");
-    let req = http.post(&state, &path).await?;
+    let req = http.sig_post(&state, &path).await?;
 
     #[derive(Deserialize)]
     struct InviteResp {

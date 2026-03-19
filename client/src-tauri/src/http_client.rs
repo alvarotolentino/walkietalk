@@ -18,9 +18,47 @@ impl HttpClient {
         }
     }
 
-    /// Build a GET request with auth header.
+    /// Build a GET request against the auth service with auth header.
     pub async fn get(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
-        let base = state.base_url().await;
+        self.get_url(&state.base_url().await, state, path).await
+    }
+
+    /// Build a POST request against the auth service with auth header.
+    pub async fn post(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.post_url(&state.base_url().await, state, path).await
+    }
+
+    /// Build a PUT request against the auth service with auth header.
+    pub async fn put(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.put_url(&state.base_url().await, state, path).await
+    }
+
+    /// Build a DELETE request against the auth service with auth header.
+    pub async fn delete(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.delete_url(&state.base_url().await, state, path).await
+    }
+
+    /// Build a GET request against the signaling service with auth header.
+    pub async fn sig_get(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.get_url(&state.signaling_base_url().await, state, path).await
+    }
+
+    /// Build a POST request against the signaling service with auth header.
+    pub async fn sig_post(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.post_url(&state.signaling_base_url().await, state, path).await
+    }
+
+    /// Build a PUT request against the signaling service with auth header.
+    pub async fn sig_put(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.put_url(&state.signaling_base_url().await, state, path).await
+    }
+
+    /// Build a DELETE request against the signaling service with auth header.
+    pub async fn sig_delete(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
+        self.delete_url(&state.signaling_base_url().await, state, path).await
+    }
+
+    async fn get_url(&self, base: &str, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
         let url = format!("{base}{path}");
         let mut req = self.inner.get(&url);
         if let Some(token) = state.access_token().await {
@@ -29,9 +67,7 @@ impl HttpClient {
         Ok(req)
     }
 
-    /// Build a POST request with auth header.
-    pub async fn post(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
-        let base = state.base_url().await;
+    async fn post_url(&self, base: &str, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
         let url = format!("{base}{path}");
         let mut req = self.inner.post(&url);
         if let Some(token) = state.access_token().await {
@@ -40,9 +76,7 @@ impl HttpClient {
         Ok(req)
     }
 
-    /// Build a PUT request with auth header.
-    pub async fn put(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
-        let base = state.base_url().await;
+    async fn put_url(&self, base: &str, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
         let url = format!("{base}{path}");
         let mut req = self.inner.put(&url);
         if let Some(token) = state.access_token().await {
@@ -51,9 +85,7 @@ impl HttpClient {
         Ok(req)
     }
 
-    /// Build a DELETE request with auth header.
-    pub async fn delete(&self, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
-        let base = state.base_url().await;
+    async fn delete_url(&self, base: &str, state: &AppState, path: &str) -> Result<RequestBuilder, String> {
         let url = format!("{base}{path}");
         let mut req = self.inner.delete(&url);
         if let Some(token) = state.access_token().await {

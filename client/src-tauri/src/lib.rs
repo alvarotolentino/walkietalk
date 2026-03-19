@@ -44,6 +44,8 @@ pub fn run() {
             commands::misc::play_sound,
             commands::settings::get_server_url,
             commands::settings::set_server_url,
+            commands::settings::get_signaling_url,
+            commands::settings::set_signaling_url,
             commands::audio::start_audio_capture,
             commands::audio::stop_audio_capture,
             commands::audio::start_audio_playback,

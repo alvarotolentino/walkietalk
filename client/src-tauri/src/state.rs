@@ -24,6 +24,7 @@ pub struct TokenPair {
 /// Server URL + auth + transport state shared across all Tauri commands.
 pub struct AppState {
     pub server_url: RwLock<String>,
+    pub signaling_url: RwLock<String>,
     pub tokens: RwLock<Option<TokenPair>>,
     pub user: RwLock<Option<UserInfo>>,
     pub transport: Mutex<Option<TransportManager>>,
@@ -38,7 +39,8 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            server_url: RwLock::new("http://localhost:3000".to_string()),
+            server_url: RwLock::new("http://localhost:3001".to_string()),
+            signaling_url: RwLock::new("http://localhost:3002".to_string()),
             tokens: RwLock::new(None),
             user: RwLock::new(None),
             transport: Mutex::new(None),
@@ -53,8 +55,13 @@ impl AppState {
         self.tokens.read().await.as_ref().map(|t| t.access_token.clone())
     }
 
-    /// Get the current server URL.
+    /// Get the current auth server URL.
     pub async fn base_url(&self) -> String {
         self.server_url.read().await.clone()
+    }
+
+    /// Get the current signaling server URL.
+    pub async fn signaling_base_url(&self) -> String {
+        self.signaling_url.read().await.clone()
     }
 }
