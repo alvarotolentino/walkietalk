@@ -18,7 +18,8 @@ const MAX_DELAY_MS: u64 = 60_000;
 
 /// Manages the WebSocket transport: send/receive, heartbeat, event dispatch, auto-reconnect.
 pub struct TransportManager {
-    write_tx: WsWriteTx,
+    /// Shared write channel — swapped by the reconnect loop when a new connection is established.
+    shared_write_tx: Arc<tokio::sync::Mutex<WsWriteTx>>,
     read_task: JoinHandle<()>,
     heartbeat_task: JoinHandle<()>,
     reconnect_task: JoinHandle<()>,
@@ -33,6 +34,7 @@ impl TransportManager {
         active_rooms: Vec<String>,
     ) -> Result<Self, String> {
         let (write_tx, read_rx) = connect_ws(&url).await?;
+        let shared_write_tx = Arc::new(tokio::sync::Mutex::new(write_tx.clone()));
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let last_ack = Arc::new(AtomicU64::new(now_secs()));
 
@@ -81,15 +83,16 @@ impl TransportManager {
             let app = app.clone();
             let shutdown_flag = shutdown_flag.clone();
             let active_rooms = active_rooms.clone();
+            let shared_write_tx = shared_write_tx.clone();
             tokio::spawn(async move {
                 // Wait for the first connection to drop
                 let _ = drop_rx.await;
-                Self::reconnect_loop(url, app, shutdown_flag, active_rooms).await;
+                Self::reconnect_loop(url, app, shutdown_flag, active_rooms, shared_write_tx).await;
             })
         };
 
         Ok(Self {
-            write_tx,
+            shared_write_tx,
             read_task,
             heartbeat_task,
             reconnect_task,
@@ -99,7 +102,7 @@ impl TransportManager {
 
     /// Send a text (JSON control) message over the WebSocket.
     pub async fn send_text(&self, text: &str) -> Result<(), String> {
-        self.write_tx
+        self.shared_write_tx.lock().await
             .send(WsMessage::Text(text.into()))
             .await
             .map_err(|_| "Transport closed".to_string())
@@ -107,15 +110,15 @@ impl TransportManager {
 
     /// Send a binary (audio) frame over the WebSocket.
     pub async fn send_binary(&self, data: Vec<u8>) -> Result<(), String> {
-        self.write_tx
+        self.shared_write_tx.lock().await
             .send(WsMessage::Binary(data.into()))
             .await
             .map_err(|_| "Transport closed".to_string())
     }
 
     /// Clone the write channel for use by the audio capture pipeline.
-    pub fn write_channel(&self) -> WsWriteTx {
-        self.write_tx.clone()
+    pub async fn write_channel(&self) -> WsWriteTx {
+        self.shared_write_tx.lock().await.clone()
     }
 
     /// Gracefully shut down the transport — stops reconnect loop.
@@ -124,7 +127,7 @@ impl TransportManager {
         self.heartbeat_task.abort();
         self.read_task.abort();
         self.reconnect_task.abort();
-        drop(self.write_tx);
+        drop(self.shared_write_tx);
     }
 
     /// Read loop: dispatch incoming WebSocket messages as Tauri events.
@@ -205,6 +208,7 @@ impl TransportManager {
         app: AppHandle,
         shutdown_flag: Arc<AtomicBool>,
         active_rooms: Vec<String>,
+        shared_write_tx: Arc<tokio::sync::Mutex<WsWriteTx>>,
     ) {
         let mut attempt: u32 = 0;
 
@@ -234,6 +238,8 @@ impl TransportManager {
             match connect_ws(&url).await {
                 Ok((write_tx, mut read_rx)) => {
                     tracing::info!("Reconnected successfully");
+                    // Swap write channel so send_text/send_binary use the new connection
+                    *shared_write_tx.lock().await = write_tx.clone();
                     let _ = app.emit("connection_state", "connected");
                     attempt = 0;
 
@@ -295,6 +301,7 @@ impl TransportManager {
     /// Parse a server JSON message and emit the corresponding Tauri event.
     /// Emits the parsed serde_json::Value so the frontend receives a proper JS object.
     fn dispatch_text(text: &str, app: &AppHandle, last_ack: &AtomicU64) {
+        tracing::info!("dispatch_text raw: {}", &text[..text.len().min(300)]);
         let value: serde_json::Value = match serde_json::from_str(text) {
             Ok(v) => v,
             Err(e) => {
@@ -307,19 +314,22 @@ impl TransportManager {
         let msg: ServerMessage = match serde_json::from_value(value.clone()) {
             Ok(m) => m,
             Err(e) => {
-                tracing::warn!("Unknown server message: {e}");
+                tracing::warn!("Unknown server message (dropped): {e} — raw: {}", &text[..text.len().min(200)]);
                 return;
             }
         };
 
         match &msg {
             ServerMessage::RoomState { .. } => {
+                tracing::debug!("Dispatching room_state event");
                 let _ = app.emit("room_state", &value);
             }
-            ServerMessage::FloorGranted { .. } => {
+            ServerMessage::FloorGranted { room_id, user_id } => {
+                tracing::info!(%room_id, %user_id, "Dispatching floor_granted event");
                 let _ = app.emit("floor_granted", &value);
             }
-            ServerMessage::FloorDenied { .. } => {
+            ServerMessage::FloorDenied { room_id, reason } => {
+                tracing::warn!(%room_id, %reason, "Dispatching floor_denied event");
                 let _ = app.emit("floor_denied", &value);
             }
             ServerMessage::FloorOccupied { .. } => {
@@ -348,6 +358,7 @@ impl TransportManager {
                 let _ = app.emit("server_error", &value);
             }
         }
+        tracing::trace!("Dispatched server message: {text}");
     }
 }
 
