@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use zeromq::{PushSocket, Socket, SocketRecv, SocketSend, SubSocket, ZmqMessage};
 
 use walkietalk_shared::ids::{RoomId, UserId};
@@ -12,6 +12,13 @@ use crate::hub::WsHub;
 /// Topic prefixes used on the ZMQ bus.
 const AUDIO_TOPIC_PREFIX: &str = "audio.";
 const CTRL_TOPIC_PREFIX: &str = "ctrl.";
+
+/// Commands sent to the SUB socket task to subscribe/unsubscribe topics
+/// without deadlocking the recv loop.
+pub enum SubCommand {
+    Subscribe(String),
+    Unsubscribe(String),
+}
 
 /// ZeroMQ relay for multi-node fan-out.
 ///
@@ -29,7 +36,7 @@ const CTRL_TOPIC_PREFIX: &str = "ctrl.";
 ///   Frame 1: JSON-encoded ServerMessage
 pub struct ZmqRelay {
     push: Mutex<PushSocket>,
-    sub: Mutex<SubSocket>,
+    sub_cmd_tx: mpsc::UnboundedSender<SubCommand>,
 }
 
 impl ZmqRelay {
@@ -37,7 +44,7 @@ impl ZmqRelay {
     ///
     /// - `push_addr`: proxy's PULL bind address (e.g. `tcp://127.0.0.1:5559`)
     /// - `sub_addr`: proxy's PUB bind address (e.g. `tcp://127.0.0.1:5560`)
-    pub async fn new(push_addr: &str, sub_addr: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(push_addr: &str, sub_addr: &str) -> Result<(Self, SubSocket), Box<dyn std::error::Error>> {
         let mut push = PushSocket::new();
         push.connect(push_addr).await?;
         tracing::info!("ZMQ PUSH connected to {push_addr}");
@@ -46,30 +53,38 @@ impl ZmqRelay {
         sub.connect(sub_addr).await?;
         tracing::info!("ZMQ SUB connected to {sub_addr}");
 
-        Ok(Self {
-            push: Mutex::new(push),
-            sub: Mutex::new(sub),
-        })
+        let (sub_cmd_tx, _) = mpsc::unbounded_channel();
+
+        Ok((
+            Self {
+                push: Mutex::new(push),
+                sub_cmd_tx,
+            },
+            sub,
+        ))
+    }
+
+    /// Replace the command channel sender (call after spawning the listener).
+    pub fn set_sub_cmd_tx(&mut self, tx: mpsc::UnboundedSender<SubCommand>) {
+        self.sub_cmd_tx = tx;
     }
 
     /// Subscribe to audio + control topics for a room.
     pub async fn subscribe_room(&self, lock_key: i64) {
         let audio_topic = format!("{AUDIO_TOPIC_PREFIX}{lock_key}");
         let ctrl_topic = format!("{CTRL_TOPIC_PREFIX}{lock_key}");
-        let mut sub = self.sub.lock().await;
-        sub.subscribe(&audio_topic).await.ok();
-        sub.subscribe(&ctrl_topic).await.ok();
-        tracing::debug!("ZMQ subscribed to topics: {audio_topic}, {ctrl_topic}");
+        let _ = self.sub_cmd_tx.send(SubCommand::Subscribe(audio_topic.clone()));
+        let _ = self.sub_cmd_tx.send(SubCommand::Subscribe(ctrl_topic.clone()));
+        tracing::debug!("ZMQ subscribe requested: {audio_topic}, {ctrl_topic}");
     }
 
     /// Unsubscribe from audio + control topics for a room.
     pub async fn unsubscribe_room(&self, lock_key: i64) {
         let audio_topic = format!("{AUDIO_TOPIC_PREFIX}{lock_key}");
         let ctrl_topic = format!("{CTRL_TOPIC_PREFIX}{lock_key}");
-        let mut sub = self.sub.lock().await;
-        sub.unsubscribe(&audio_topic).await.ok();
-        sub.unsubscribe(&ctrl_topic).await.ok();
-        tracing::debug!("ZMQ unsubscribed from topics: {audio_topic}, {ctrl_topic}");
+        let _ = self.sub_cmd_tx.send(SubCommand::Unsubscribe(audio_topic.clone()));
+        let _ = self.sub_cmd_tx.send(SubCommand::Unsubscribe(ctrl_topic.clone()));
+        tracing::debug!("ZMQ unsubscribe requested: {audio_topic}, {ctrl_topic}");
     }
 
     /// Publish a binary audio frame to the ZMQ bus.
@@ -112,54 +127,73 @@ impl ZmqRelay {
 /// Per spec §5.3: each node's SUB socket receives the frame (via the proxy)
 /// and fans it out to all local client connections in the room.
 pub async fn zmq_sub_listener(
-    zmq_relay: Arc<ZmqRelay>,
+    mut sub: SubSocket,
+    sub_cmd_rx: mpsc::UnboundedReceiver<SubCommand>,
     ws_hub: Arc<WsHub>,
     lock_key_map: Arc<dashmap::DashMap<i64, RoomId>>,
 ) {
     tracing::info!("ZMQ SUB listener started");
 
+    let mut sub_cmd_rx = sub_cmd_rx;
+
     loop {
-        let msg = {
-            let mut sub = zmq_relay.sub.lock().await;
-            match sub.recv().await {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::error!("ZMQ SUB recv error: {e}");
-                    // brief back-off before retrying
-                    drop(sub);
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    continue;
+        tokio::select! {
+            // Process subscribe/unsubscribe commands from connection handlers
+            cmd = sub_cmd_rx.recv() => {
+                match cmd {
+                    Some(SubCommand::Subscribe(topic)) => {
+                        sub.subscribe(&topic).await.ok();
+                        tracing::debug!("ZMQ subscribed to topic: {topic}");
+                    }
+                    Some(SubCommand::Unsubscribe(topic)) => {
+                        sub.unsubscribe(&topic).await.ok();
+                        tracing::debug!("ZMQ unsubscribed from topic: {topic}");
+                    }
+                    None => {
+                        tracing::info!("ZMQ SUB command channel closed, stopping listener");
+                        break;
+                    }
                 }
             }
-        };
+            // Receive messages from ZMQ
+            result = sub.recv() => {
+                match result {
+                    Ok(msg) => {
+                        let mut frames = msg.into_vecdeque();
+                        let topic_bytes = match frames.pop_front() {
+                            Some(b) => b,
+                            None => continue,
+                        };
+                        let topic = String::from_utf8_lossy(&topic_bytes);
 
-        let mut frames = msg.into_vecdeque();
-        let topic_bytes = match frames.pop_front() {
-            Some(b) => b,
-            None => continue,
-        };
-        let topic = String::from_utf8_lossy(&topic_bytes);
-
-        if let Some(lock_key_str) = topic.strip_prefix(AUDIO_TOPIC_PREFIX) {
-            // Audio: 3 frames — topic, speaker_uuid, raw_frame
-            let speaker_bytes = match frames.pop_front() {
-                Some(b) => b,
-                None => continue,
-            };
-            let raw_frame = match frames.pop_front() {
-                Some(b) => b,
-                None => continue,
-            };
-            handle_zmq_audio(lock_key_str, &speaker_bytes, &raw_frame, &ws_hub, &lock_key_map);
-        } else if let Some(lock_key_str) = topic.strip_prefix(CTRL_TOPIC_PREFIX) {
-            // Control: 2 frames — topic, json
-            let json_bytes = match frames.pop_front() {
-                Some(b) => b,
-                None => continue,
-            };
-            handle_zmq_control(lock_key_str, &json_bytes, &ws_hub, &lock_key_map);
-        } else {
-            tracing::debug!("ZMQ unknown topic: {topic}");
+                        if let Some(lock_key_str) = topic.strip_prefix(AUDIO_TOPIC_PREFIX) {
+                            // Audio: 3 frames — topic, speaker_uuid, raw_frame
+                            let speaker_bytes = match frames.pop_front() {
+                                Some(b) => b,
+                                None => continue,
+                            };
+                            let raw_frame = match frames.pop_front() {
+                                Some(b) => b,
+                                None => continue,
+                            };
+                            handle_zmq_audio(lock_key_str, &speaker_bytes, &raw_frame, &ws_hub, &lock_key_map);
+                        } else if let Some(lock_key_str) = topic.strip_prefix(CTRL_TOPIC_PREFIX) {
+                            // Control: 2 frames — topic, json
+                            let json_bytes = match frames.pop_front() {
+                                Some(b) => b,
+                                None => continue,
+                            };
+                            handle_zmq_control(lock_key_str, &json_bytes, &ws_hub, &lock_key_map);
+                        } else {
+                            tracing::debug!("ZMQ unknown topic: {topic}");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("ZMQ SUB recv error: {e}");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                }
+            }
         }
     }
 }

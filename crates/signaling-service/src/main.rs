@@ -41,10 +41,10 @@ async fn main() {
     // Optionally connect to ZMQ fan-out proxy
     let zmq_relay = match (&config.zmq_push_addr, &config.zmq_sub_addr) {
         (Some(push_addr), Some(sub_addr)) => {
-            let relay = ZmqRelay::new(push_addr, sub_addr)
+            let (relay, sub_socket) = ZmqRelay::new(push_addr, sub_addr)
                 .await
                 .expect("failed to connect to ZMQ proxy");
-            Some(Arc::new(relay))
+            Some((Arc::new(relay), sub_socket))
         }
         _ => {
             tracing::info!("ZMQ not configured — running in single-node mode");
@@ -56,13 +56,19 @@ async fn main() {
     let lock_key_map = Arc::new(DashMap::new());
 
     // Spawn ZMQ SUB listener if connected
-    if let Some(ref relay) = zmq_relay {
+    let zmq_relay = if let Some((mut relay, sub_socket)) = zmq_relay {
+        let (sub_cmd_tx, sub_cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        Arc::get_mut(&mut relay).unwrap().set_sub_cmd_tx(sub_cmd_tx);
         tokio::spawn(zmq_relay::zmq_sub_listener(
-            Arc::clone(relay),
+            sub_socket,
+            sub_cmd_rx,
             Arc::clone(&ws_hub),
             Arc::clone(&lock_key_map),
         ));
-    }
+        Some(relay)
+    } else {
+        None
+    };
 
     let state = Arc::new(AppState {
         db: pool,
