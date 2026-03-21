@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:build": "cross-env CMAKE_POLICY_VERSION_MINIMUM=3.5 tauri build",
     "tauri:dev2": "cross-env VITE_PORT=1421 CARGO_TARGET_DIR=../target-dev2 CMAKE_POLICY_VERSION_MINIMUM=3.5 tauri dev --config src-tauri/tauri.dev2.json"
   },
   "dependencies": {
