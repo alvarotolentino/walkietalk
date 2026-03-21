@@ -1,0 +1,21 @@
+# Benchmark overlay — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build --force-recreate
+#
+# Silences all application logging and exposes the /metrics JSON endpoint.
+
+services:
+  zmq-proxy:
+    environment:
+      RUST_LOG: "off"
+
+  auth:
+    environment:
+      RUST_LOG: "off"
+
+  signaling-1:
+    environment:
+      RUST_LOG: "off"
+
+  signaling-2:
+    environment:
+      RUST_LOG: "off"
