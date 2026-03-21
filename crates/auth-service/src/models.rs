@@ -3,37 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-// ---------------------------------------------------------------------------
-// Database row models
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct User {
-    pub id: Uuid,
-    pub username: String,
-    pub email: String,
-    pub password_hash: String,
-    pub display_name: String,
-    pub avatar_url: Option<String>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct Device {
-    pub id: Uuid,
-    pub name: String,
-    pub platform: String,
-    pub push_token: Option<String>,
-    pub last_seen: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
-
-/// Partial refresh token row — only the fields needed during rotation.
-#[derive(Debug, sqlx::FromRow)]
-pub struct RefreshTokenRecord {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub device_id: Option<Uuid>,
-}
+use walkietalk_shared::db;
 
 // ---------------------------------------------------------------------------
 // Request bodies
@@ -87,8 +57,8 @@ pub struct UserResponse {
     pub avatar_url: Option<String>,
 }
 
-impl From<User> for UserResponse {
-    fn from(u: User) -> Self {
+impl From<db::UserRecord> for UserResponse {
+    fn from(u: db::UserRecord) -> Self {
         Self {
             id: u.id,
             username: u.username,
@@ -122,8 +92,8 @@ pub struct DeviceResponse {
     pub created_at: DateTime<Utc>,
 }
 
-impl From<Device> for DeviceResponse {
-    fn from(d: Device) -> Self {
+impl From<db::DeviceRecord> for DeviceResponse {
+    fn from(d: db::DeviceRecord) -> Self {
         Self {
             id: d.id,
             name: d.name,

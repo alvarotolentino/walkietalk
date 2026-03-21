@@ -9,11 +9,11 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 
 use walkietalk_shared::audio::AudioFrame;
+use walkietalk_shared::db;
 use walkietalk_shared::enums::PresenceStatus;
 use walkietalk_shared::ids::{RoomId, UserId};
 use walkietalk_shared::messages::{ClientMessage, MemberInfo, ServerMessage};
 
-use crate::floor::get_room_lock_key;
 use crate::hub::{ClientHandle, ConnectionState};
 use crate::models::room::get_room_member_info;
 use crate::state::AppState;
@@ -155,12 +155,11 @@ async fn handle_join_room(
     let user_id = conn_state.user_id;
 
     // Verify membership in DB
-    let is_member: bool = match sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
+    let is_member: bool = match db::is_room_member(
+        &mut state.redis.clone(),
+        room_id.0,
+        user_id.0,
     )
-    .bind(room_id.0)
-    .bind(user_id.0)
-    .fetch_one(&state.db)
     .await
     {
         Ok(v) => v,
@@ -190,7 +189,7 @@ async fn handle_join_room(
     }
 
     // Fetch member info for ROOM_STATE
-    let mut members = match get_room_member_info(&state.db, &room_id).await {
+    let mut members = match get_room_member_info(&mut state.redis.clone(), &room_id).await {
         Ok(m) => m,
         Err(e) => {
             tracing::error!("failed to get room members: {e}");
@@ -214,7 +213,7 @@ async fn handle_join_room(
     }
 
     // Cache lock_key for this room (avoids DB lookup on every floor request)
-    if let Ok(key) = get_room_lock_key(&state.db, &room_id).await {
+    if let Ok(Some(key)) = db::get_room_lock_key(&mut state.redis.clone(), room_id.0).await {
         conn_state.lock_keys.insert(room_id, key);
         // Populate the shared lock_key → RoomId map for binary audio relay
         state.lock_key_map.insert(key, room_id);
@@ -370,13 +369,12 @@ async fn handle_floor_request(
     // Get lock_key (from cache or DB)
     let lock_key = match conn_state.lock_keys.get(&room_id) {
         Some(&k) => k,
-        None => match get_room_lock_key(&state.db, &room_id).await {
-            Ok(k) => {
+        None => match db::get_room_lock_key(&mut state.redis.clone(), room_id.0).await {
+            Ok(Some(k)) => {
                 conn_state.lock_keys.insert(room_id, k);
                 k
             }
-            Err(e) => {
-                tracing::error!("failed to get lock_key: {e}");
+            Ok(None) | Err(_) => {
                 send_to_client(
                     &conn_state.tx,
                     &ServerMessage::FloorDenied {

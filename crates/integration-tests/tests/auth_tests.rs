@@ -11,7 +11,7 @@ use common::{register_user, login_user, unique_suffix, TestDb, start_auth_server
 #[tokio::test]
 async fn register_and_login_happy_path() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     // Register
@@ -45,7 +45,7 @@ async fn register_and_login_happy_path() {
 #[tokio::test]
 async fn register_duplicate_username_fails() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     register_user(&base, &format!("dup_{s}"), &format!("dup1_{s}@test.io"), "password123").await;
@@ -70,7 +70,7 @@ async fn register_duplicate_username_fails() {
 #[tokio::test]
 async fn register_duplicate_email_fails() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     register_user(&base, &format!("orig_{s}"), &format!("same_{s}@test.io"), "password123").await;
@@ -94,7 +94,7 @@ async fn register_duplicate_email_fails() {
 #[tokio::test]
 async fn login_wrong_password() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     register_user(&base, &format!("bob_{s}"), &format!("bob_{s}@test.io"), "correctpass").await;
@@ -116,7 +116,7 @@ async fn login_wrong_password() {
 #[tokio::test]
 async fn login_nonexistent_user() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
 
     let client = reqwest::Client::new();
     let res = client
@@ -139,7 +139,7 @@ async fn login_nonexistent_user() {
 #[tokio::test]
 async fn refresh_token_happy_path() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     let (_token, refresh, _uid) =
@@ -164,7 +164,7 @@ async fn refresh_token_happy_path() {
 #[tokio::test]
 async fn refresh_with_invalid_token_fails() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
 
     let client = reqwest::Client::new();
     let res = client
@@ -184,7 +184,7 @@ async fn refresh_with_invalid_token_fails() {
 #[tokio::test]
 async fn logout_revokes_refresh_token() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     let (token, refresh, _uid) =
@@ -221,7 +221,7 @@ async fn logout_revokes_refresh_token() {
 #[tokio::test]
 async fn get_me_unauthorized() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
 
     let client = reqwest::Client::new();
     let res = client
@@ -240,7 +240,7 @@ async fn get_me_unauthorized() {
 #[tokio::test]
 async fn device_crud() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
     let (token, _refresh, _uid) =
@@ -307,7 +307,7 @@ async fn device_crud() {
 #[tokio::test]
 async fn register_validation_errors() {
     let db = TestDb::start().await;
-    let base = start_auth_server(db.pool.clone()).await;
+    let base = start_auth_server(db.redis.clone()).await;
 
     let client = reqwest::Client::new();
 

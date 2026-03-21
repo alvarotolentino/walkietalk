@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use sqlx::PgPool;
+use walkietalk_shared::db::RedisConn;
 use walkietalk_shared::extractors::HasJwtSecret;
 use walkietalk_shared::ids::RoomId;
 
@@ -14,7 +14,7 @@ use crate::zmq_relay::ZmqRelay;
 /// Shared application state for all signaling service handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub db: PgPool,
+    pub redis: RedisConn,
     pub jwt_secret: String,
     pub ws_hub: Arc<WsHub>,
     pub floor_manager: Arc<FloorManager>,

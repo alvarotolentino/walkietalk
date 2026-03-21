@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
-use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
@@ -11,6 +10,7 @@ use uuid::Uuid;
 
 use walkietalk_shared::audio::{AudioFrame, FLAG_END_OF_TRANSMISSION, HEADER_SIZE};
 use walkietalk_shared::auth::encode_jwt;
+use walkietalk_shared::db::{self, RedisConn};
 use walkietalk_shared::ids::{RoomId, UserId};
 use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 
@@ -28,16 +28,11 @@ const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 // Helper: spin up the server, return the base URL
 // ---------------------------------------------------------------------------
 
-async fn start_server(pool: PgPool) -> String {
-    let floor_manager = FloorManager::new(
-        &std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-        10,
-    )
-    .await
-    .expect("floor manager");
+async fn start_server(redis: RedisConn) -> String {
+    let floor_manager = FloorManager::new(redis.clone());
 
     let state = Arc::new(AppState {
-        db: pool,
+        redis,
         jwt_secret: TEST_JWT_SECRET.into(),
         ws_hub: Arc::new(WsHub::new()),
         floor_manager: Arc::new(floor_manager),
@@ -60,26 +55,21 @@ async fn start_server(pool: PgPool) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: create a test user directly in the DB, return (UserId, JWT)
+// Helper: create a test user directly in Redis, return (UserId, JWT)
 // ---------------------------------------------------------------------------
 
-async fn create_test_user(pool: &PgPool, username: &str) -> (UserId, String) {
-    let user_id = Uuid::new_v4();
-    // password_hash is irrelevant for WS tests — just needs to be non-empty
-    sqlx::query(
-        "INSERT INTO users (id, username, email, password_hash, display_name) \
-         VALUES ($1, $2, $3, $4, $5)",
+async fn create_test_user(redis: &RedisConn, username: &str) -> (UserId, String) {
+    let record = db::create_user(
+        &mut redis.clone(),
+        username,
+        &format!("{username}@test.local"),
+        "not-a-real-hash",
+        username,
     )
-    .bind(user_id)
-    .bind(username)
-    .bind(format!("{username}@test.local"))
-    .bind("not-a-real-hash")
-    .bind(username)
-    .execute(pool)
     .await
     .expect("insert test user");
 
-    let uid = UserId(user_id);
+    let uid = UserId(record.id);
     let jwt = encode_jwt(&uid, None, TEST_JWT_SECRET).expect("encode jwt");
     (uid, jwt)
 }
@@ -225,20 +215,15 @@ async fn ws_recv_many(ws: &mut WsStream, count: usize) -> Vec<ServerMessage> {
 async fn test_two_clients_ptt_audio_exchange() {
     dotenvy::dotenv().ok();
 
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for integration tests");
-    let pool = PgPool::connect(&db_url).await.expect("connect to DB");
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL must be set for integration tests");
+    let redis = db::connect(&redis_url).await.expect("connect to Redis");
 
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("run migrations");
-
-    let base = start_server(pool.clone()).await;
+    let base = start_server(redis.clone()).await;
 
     // ── Create two test users ──────────────────────────────────────────────
     let suffix = Uuid::new_v4().simple().to_string();
-    let (user_a, jwt_a) = create_test_user(&pool, &format!("alice_{suffix}")).await;
-    let (_user_b, jwt_b) = create_test_user(&pool, &format!("bob_{suffix}")).await;
+    let (user_a, jwt_a) = create_test_user(&redis, &format!("alice_{suffix}")).await;
+    let (_user_b, jwt_b) = create_test_user(&redis, &format!("bob_{suffix}")).await;
 
     // ── User A creates a public room ───────────────────────────────────────
     let room_id = create_test_room(&base, &jwt_a, &format!("TestRoom_{suffix}")).await;
@@ -308,11 +293,10 @@ async fn test_two_clients_ptt_audio_exchange() {
 
     // ── Client A sends a binary audio frame ────────────────────────────────
     // We need the room's lock_key for the wire room_id. Look it up:
-    let lock_key: i64 = sqlx::query_scalar("SELECT lock_key FROM rooms WHERE id = $1")
-        .bind(room_id.0)
-        .fetch_one(&pool)
+    let lock_key: i64 = db::get_room_lock_key(&mut redis.clone(), room_id.0)
         .await
-        .expect("get lock_key");
+        .expect("get lock_key")
+        .expect("lock_key should exist");
 
     let frame = AudioFrame {
         room_id: lock_key as u64,

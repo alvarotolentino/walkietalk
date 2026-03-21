@@ -1,4 +1,4 @@
-//! Shared test infrastructure: Postgres testcontainer, migrations, server launchers, helpers.
+//! Shared test infrastructure: Redis/LuxDB testcontainer, server launchers, helpers.
 //!
 //! Each integration test file compiles as a separate binary crate with its own
 //! copy of this module.  Functions used only by *other* test files appear
@@ -10,20 +10,21 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
-use sqlx::PgPool;
-use testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt};
+use testcontainers::{runners::AsyncRunner, ContainerAsync};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 use walkietalk_shared::auth::encode_jwt;
+use walkietalk_shared::db::{self, RedisConn};
 use walkietalk_shared::ids::UserId;
 use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 
 use walkietalk_auth::state::AppState as AuthState;
 use walkietalk_signaling::floor::FloorManager;
 use walkietalk_signaling::hub::WsHub;
+use walkietalk_signaling::metrics::Metrics;
 use walkietalk_signaling::presence::PresenceManager;
 use walkietalk_signaling::state::AppState as SignalingState;
 
@@ -35,36 +36,30 @@ pub const TEST_JWT_SECRET: &str = "integration-test-secret-key-for-ci";
 pub const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 
 // ---------------------------------------------------------------------------
-// Postgres testcontainer
+// Redis/LuxDB testcontainer
 // ---------------------------------------------------------------------------
 
-/// A running Postgres container with a connection pool.
+/// A running Redis-compatible container with a connection manager.
 pub struct TestDb {
-    pub pool: PgPool,
-    pub db_url: String,
+    pub redis: RedisConn,
+    pub redis_url: String,
     // Hold the container to keep it alive for the test duration.
     _container: ContainerAsync<testcontainers::GenericImage>,
 }
 
 impl TestDb {
-    /// Start a Postgres 16 container, run migrations, and return the pool.
+    /// Start a Redis container and return a connection manager.
     pub async fn start() -> Self {
-        // GenericImage methods (with_exposed_port, with_wait_for) must be called
-        // BEFORE ImageExt methods (with_env_var), because ImageExt converts the
-        // type to ContainerRequest<GenericImage> which lacks GenericImage-specific methods.
-        let image = testcontainers::GenericImage::new("postgres", "16-alpine")
-            .with_exposed_port(testcontainers::core::ContainerPort::Tcp(5432))
-            .with_wait_for(testcontainers::core::WaitFor::message_on_stderr(
-                "database system is ready to accept connections",
-            ))
-            .with_env_var("POSTGRES_USER", "test")
-            .with_env_var("POSTGRES_PASSWORD", "test")
-            .with_env_var("POSTGRES_DB", "walkietalk_test");
+        let image = testcontainers::GenericImage::new("redis", "7-alpine")
+            .with_exposed_port(testcontainers::core::ContainerPort::Tcp(6379))
+            .with_wait_for(testcontainers::core::WaitFor::message_on_stdout(
+                "Ready to accept connections",
+            ));
 
-        let container = image.start().await.expect("failed to start postgres container");
+        let container = image.start().await.expect("failed to start redis container");
 
         let host_port = container
-            .get_host_port_ipv4(5432)
+            .get_host_port_ipv4(6379)
             .await
             .expect("failed to get mapped port");
 
@@ -73,31 +68,23 @@ impl TestDb {
             .await
             .expect("failed to get container host");
 
-        let db_url = format!(
-            "postgres://test:test@{host}:{host_port}/walkietalk_test"
-        );
+        let redis_url = format!("redis://{host}:{host_port}");
 
-        // Wait for Postgres to actually accept connections (beyond the log message)
-        let pool = tokio::time::timeout(Duration::from_secs(30), async {
+        // Wait for Redis to accept connections
+        let redis = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
-                match PgPool::connect(&db_url).await {
-                    Ok(p) => break p,
+                match db::connect(&redis_url).await {
+                    Ok(c) => break c,
                     Err(_) => tokio::time::sleep(Duration::from_millis(200)).await,
                 }
             }
         })
         .await
-        .expect("timed out waiting for postgres to accept connections");
-
-        // Run migrations
-        sqlx::migrate!("../../migrations")
-            .run(&pool)
-            .await
-            .expect("failed to run database migrations");
+        .expect("timed out waiting for redis to accept connections");
 
         Self {
-            pool,
-            db_url,
+            redis,
+            redis_url,
             _container: container,
         }
     }
@@ -108,9 +95,9 @@ impl TestDb {
 // ---------------------------------------------------------------------------
 
 /// Start the auth service on a random port, return the `host:port` base URL.
-pub async fn start_auth_server(pool: PgPool) -> String {
+pub async fn start_auth_server(redis: RedisConn) -> String {
     let state = Arc::new(AuthState {
-        db: pool,
+        redis,
         jwt_secret: TEST_JWT_SECRET.into(),
     });
 
@@ -127,19 +114,18 @@ pub async fn start_auth_server(pool: PgPool) -> String {
 }
 
 /// Start the signaling service on a random port, return the `host:port` base URL.
-pub async fn start_signaling_server(pool: PgPool, db_url: &str) -> String {
-    let floor_manager = FloorManager::new(db_url, 10)
-        .await
-        .expect("floor manager");
+pub async fn start_signaling_server(redis: RedisConn) -> String {
+    let floor_manager = FloorManager::new(redis.clone());
 
     let state = Arc::new(SignalingState {
-        db: pool,
+        redis,
         jwt_secret: TEST_JWT_SECRET.into(),
         ws_hub: Arc::new(WsHub::new()),
         floor_manager: Arc::new(floor_manager),
         presence: Arc::new(PresenceManager::new()),
         lock_key_map: Arc::new(DashMap::new()),
         zmq_relay: None,
+        metrics: Arc::new(Metrics::new()),
     });
 
     let app = walkietalk_signaling::build_app(state);
@@ -326,23 +312,19 @@ pub async fn ws_recv_many(ws: &mut WsStream, count: usize) -> Vec<ServerMessage>
 // Direct-DB helpers (bypass REST for speed when setting up test fixtures)
 // ---------------------------------------------------------------------------
 
-/// Insert a test user directly into the DB and return a JWT for that user.
-pub async fn create_test_user_direct(pool: &PgPool, username: &str) -> (UserId, String) {
-    let user_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO users (id, username, email, password_hash, display_name) \
-         VALUES ($1, $2, $3, $4, $5)",
+/// Insert a test user directly into Redis and return a JWT for that user.
+pub async fn create_test_user_direct(redis: &RedisConn, username: &str) -> (UserId, String) {
+    let record = db::create_user(
+        &mut redis.clone(),
+        username,
+        &format!("{username}@test.local"),
+        "not-a-real-hash",
+        username,
     )
-    .bind(user_id)
-    .bind(username)
-    .bind(format!("{username}@test.local"))
-    .bind("not-a-real-hash")
-    .bind(username)
-    .execute(pool)
     .await
     .expect("insert test user");
 
-    let uid = UserId(user_id);
+    let uid = UserId(record.id);
     let jwt = encode_jwt(&uid, None, TEST_JWT_SECRET).expect("encode jwt");
     (uid, jwt)
 }

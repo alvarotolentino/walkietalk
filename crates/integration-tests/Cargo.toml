@@ -33,8 +33,8 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { workspace = true }
 futures-util = { workspace = true }
 
-# Database
-sqlx = { workspace = true }
+# Database (LuxDB — Redis-compatible)
+redis = { workspace = true }
 
 # Serialization
 serde = { workspace = true }

@@ -6,12 +6,11 @@ use axum::Json;
 use uuid::Uuid;
 use validator::Validate;
 
+use walkietalk_shared::db;
 use walkietalk_shared::error::AppError;
 use walkietalk_shared::extractors::AuthUser;
 
-use crate::models::{
-    CreateDeviceRequest, Device, DeviceResponse, User, UserResponse,
-};
+use crate::models::{CreateDeviceRequest, DeviceResponse, UserResponse};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -22,11 +21,8 @@ pub async fn get_me(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<UserResponse>, AppError> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(auth.user_id.0)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let user = db::get_user(&mut state.redis.clone(), auth.user_id.0)
+        .await?
         .ok_or_else(|| AppError::NotFound("user not found".into()))?;
 
     Ok(Json(UserResponse::from(user)))
@@ -44,15 +40,13 @@ pub async fn create_device(
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let device = sqlx::query_as::<_, Device>(
-        "INSERT INTO devices (user_id, name, platform) VALUES ($1, $2, $3) RETURNING *",
+    let device = db::create_device(
+        &mut state.redis.clone(),
+        auth.user_id.0,
+        &req.name,
+        &req.platform,
     )
-    .bind(auth.user_id.0)
-    .bind(&req.name)
-    .bind(&req.platform)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    .await?;
 
     Ok((StatusCode::CREATED, Json(DeviceResponse::from(device))))
 }
@@ -65,13 +59,7 @@ pub async fn list_devices(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<DeviceResponse>>, AppError> {
-    let devices = sqlx::query_as::<_, Device>(
-        "SELECT * FROM devices WHERE user_id = $1 ORDER BY created_at DESC",
-    )
-    .bind(auth.user_id.0)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let devices = db::list_devices(&mut state.redis.clone(), auth.user_id.0).await?;
 
     Ok(Json(devices.into_iter().map(DeviceResponse::from).collect()))
 }
@@ -85,14 +73,9 @@ pub async fn delete_device(
     auth: AuthUser,
     Path(device_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    let result = sqlx::query("DELETE FROM devices WHERE id = $1 AND user_id = $2")
-        .bind(device_id)
-        .bind(auth.user_id.0)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let deleted = db::delete_device(&mut state.redis.clone(), device_id, auth.user_id.0).await?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(AppError::NotFound("device not found".into()));
     }
 

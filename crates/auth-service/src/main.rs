@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use sqlx::postgres::PgPool;
 use tower_http::trace::TraceLayer;
 
 use walkietalk_auth::config::Config;
 use walkietalk_auth::state::AppState;
+use walkietalk_shared::db;
 
 #[tokio::main]
 async fn main() {
@@ -19,17 +19,12 @@ async fn main() {
 
     let config = Config::from_env();
 
-    let pool = PgPool::connect(&config.database_url)
+    let redis = db::connect(&config.redis_url)
         .await
-        .expect("failed to connect to database");
-
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("failed to run database migrations");
+        .expect("failed to connect to Redis/LuxDB");
 
     let state = Arc::new(AppState {
-        db: pool,
+        redis,
         jwt_secret: config.jwt_secret,
     });
 

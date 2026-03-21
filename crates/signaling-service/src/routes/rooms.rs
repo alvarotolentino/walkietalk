@@ -6,13 +6,14 @@ use axum::Json;
 use uuid::Uuid;
 use validator::Validate;
 
+use walkietalk_shared::db;
 use walkietalk_shared::error::AppError;
 use walkietalk_shared::extractors::AuthUser;
 use walkietalk_shared::ids::RoomId;
 
 use crate::models::room::{
-    CreateRoomRequest, InviteCodeResponse, JoinRoomRequest, PublicRoomQuery, Room,
-    RoomDetailResponse, RoomResponse, RoomWithCount, UpdateRoomRequest, get_room_member_info,
+    CreateRoomRequest, InviteCodeResponse, JoinRoomRequest, PublicRoomQuery,
+    RoomDetailResponse, RoomResponse, UpdateRoomRequest, get_room_member_info,
 };
 use crate::state::AppState;
 use crate::utils::{generate_invite_code, generate_slug};
@@ -37,43 +38,23 @@ pub async fn create_room(
     }
 
     let slug = generate_slug(&req.name);
+    let conn = &mut state.redis.clone();
 
-    let room = sqlx::query_as::<_, Room>(
-        "INSERT INTO rooms (name, description, slug, owner_id, visibility) \
-         VALUES ($1, $2, $3, $4, $5) RETURNING *",
+    let room = db::create_room(
+        conn,
+        &req.name,
+        req.description.as_deref(),
+        &slug,
+        auth.user_id.0,
+        visibility,
     )
-    .bind(&req.name)
-    .bind(&req.description)
-    .bind(&slug)
-    .bind(auth.user_id.0)
-    .bind(visibility)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    .await?;
 
-    // Auto-insert owner as a member with role 'owner'
-    sqlx::query(
-        "INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'owner')",
-    )
-    .bind(room.id)
-    .bind(auth.user_id.0)
-    .execute(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    db::add_room_member(conn, room.id, auth.user_id.0, "owner").await?;
 
     Ok((
         StatusCode::CREATED,
-        Json(RoomResponse {
-            id: room.id,
-            slug: room.slug,
-            name: room.name,
-            description: room.description,
-            owner_id: room.owner_id,
-            visibility: room.visibility,
-            invite_code: room.invite_code,
-            created_at: room.created_at,
-            member_count: 1,
-        }),
+        Json(RoomResponse::from_record(room, 1)),
     ))
 }
 
@@ -85,22 +66,15 @@ pub async fn list_rooms(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RoomResponse>>, AppError> {
-    let rooms = sqlx::query_as::<_, RoomWithCount>(
-        "SELECT r.id, r.slug, r.name, r.description, r.owner_id, r.visibility, \
-                r.invite_code, r.created_at, \
-                COUNT(rm2.user_id) AS member_count \
-         FROM rooms r \
-         JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = $1 \
-         LEFT JOIN room_members rm2 ON rm2.room_id = r.id \
-         GROUP BY r.id \
-         ORDER BY r.created_at DESC",
-    )
-    .bind(auth.user_id.0)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let conn = &mut state.redis.clone();
+    let records = db::list_user_rooms(conn, auth.user_id.0).await?;
 
-    Ok(Json(rooms.into_iter().map(RoomResponse::from).collect()))
+    let rooms: Vec<RoomResponse> = records
+        .into_iter()
+        .map(|(rec, count)| RoomResponse::from_record(rec, count))
+        .collect();
+
+    Ok(Json(rooms))
 }
 
 // ---------------------------------------------------------------------------
@@ -114,46 +88,16 @@ pub async fn list_public_rooms(
 ) -> Result<Json<Vec<RoomResponse>>, AppError> {
     let limit = params.limit.unwrap_or(20).min(100);
     let offset = params.offset.unwrap_or(0).max(0);
+    let conn = &mut state.redis.clone();
 
-    let rooms = if let Some(ref search) = params.search {
-        let pattern = format!("%{search}%");
-        sqlx::query_as::<_, RoomWithCount>(
-            "SELECT r.id, r.slug, r.name, r.description, r.owner_id, r.visibility, \
-                    r.invite_code, r.created_at, \
-                    COUNT(rm.user_id) AS member_count \
-             FROM rooms r \
-             LEFT JOIN room_members rm ON rm.room_id = r.id \
-             WHERE r.visibility = 'public' AND r.name ILIKE $1 \
-             GROUP BY r.id \
-             ORDER BY r.created_at DESC \
-             LIMIT $2 OFFSET $3",
-        )
-        .bind(&pattern)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
-    } else {
-        sqlx::query_as::<_, RoomWithCount>(
-            "SELECT r.id, r.slug, r.name, r.description, r.owner_id, r.visibility, \
-                    r.invite_code, r.created_at, \
-                    COUNT(rm.user_id) AS member_count \
-             FROM rooms r \
-             LEFT JOIN room_members rm ON rm.room_id = r.id \
-             WHERE r.visibility = 'public' \
-             GROUP BY r.id \
-             ORDER BY r.created_at DESC \
-             LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
-    };
+    let records = db::list_public_rooms(conn, params.search.as_deref(), limit, offset).await?;
 
-    Ok(Json(rooms.into_iter().map(RoomResponse::from).collect()))
+    let mut rooms = Vec::with_capacity(records.len());
+    for (rec, count) in records {
+        rooms.push(RoomResponse::from_record(rec, count));
+    }
+
+    Ok(Json(rooms))
 }
 
 // ---------------------------------------------------------------------------
@@ -166,29 +110,17 @@ pub async fn get_room(
     Path(room_id): Path<Uuid>,
 ) -> Result<Json<RoomDetailResponse>, AppError> {
     let rid = RoomId(room_id);
+    let conn = &mut state.redis.clone();
 
-    // Verify membership
-    let is_member: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
-    )
-    .bind(room_id)
-    .bind(auth.user_id.0)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    if !is_member {
+    if !db::is_room_member(conn, room_id, auth.user_id.0).await? {
         return Err(AppError::Forbidden("not a room member".into()));
     }
 
-    let room = sqlx::query_as::<_, Room>("SELECT * FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let room = db::get_room(conn, room_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
-    let members = get_room_member_info(&state.db, &rid).await?;
+    let members = get_room_member_info(conn, &rid).await?;
 
     Ok(Json(RoomDetailResponse {
         id: room.id,
@@ -216,12 +148,10 @@ pub async fn update_room(
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    // Verify owner
-    let room = sqlx::query_as::<_, Room>("SELECT * FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let conn = &mut state.redis.clone();
+
+    let room = db::get_room(conn, room_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id != auth.user_id.0 {
@@ -240,24 +170,9 @@ pub async fn update_room(
     let description = req.description.as_deref().or(room.description.as_deref());
     let visibility = req.visibility.as_deref().unwrap_or(&room.visibility);
 
-    sqlx::query(
-        "UPDATE rooms SET name = $1, description = $2, visibility = $3, updated_at = NOW() \
-         WHERE id = $4",
-    )
-    .bind(name)
-    .bind(description)
-    .bind(visibility)
-    .bind(room_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    db::update_room(conn, room_id, name, description, visibility, &room.visibility).await?;
 
-    let member_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM room_members WHERE room_id = $1")
-            .bind(room_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+    let member_count = db::room_member_count(conn, room_id).await?;
 
     Ok(Json(RoomResponse {
         id: room.id,
@@ -281,22 +196,17 @@ pub async fn delete_room(
     auth: AuthUser,
     Path(room_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    let room = sqlx::query_as::<_, Room>("SELECT * FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let conn = &mut state.redis.clone();
+
+    let room = db::get_room(conn, room_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id != auth.user_id.0 {
         return Err(AppError::Forbidden("only the owner can delete the room".into()));
     }
 
-    sqlx::query("DELETE FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    db::delete_room(conn, &room).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -311,11 +221,10 @@ pub async fn join_room(
     Path(room_id): Path<Uuid>,
     Json(req): Json<JoinRoomRequest>,
 ) -> Result<Json<RoomResponse>, AppError> {
-    let room = sqlx::query_as::<_, Room>("SELECT * FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let conn = &mut state.redis.clone();
+
+    let room = db::get_room(conn, room_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     // Check access
@@ -333,50 +242,18 @@ pub async fn join_room(
         }
     }
 
-    // Check not already a member
-    let already: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
-    )
-    .bind(room_id)
-    .bind(auth.user_id.0)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    if already {
+    if db::is_room_member(conn, room_id, auth.user_id.0).await? {
         return Err(AppError::Conflict("already a member of this room".into()));
     }
 
-    // Check member count limit
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM room_members WHERE room_id = $1")
-            .bind(room_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-
+    let count = db::room_member_count(conn, room_id).await?;
     if count >= 500 {
         return Err(AppError::Forbidden("room is full (max 500 members)".into()));
     }
 
-    sqlx::query("INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')")
-        .bind(room_id)
-        .bind(auth.user_id.0)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    db::add_room_member(conn, room_id, auth.user_id.0, "member").await?;
 
-    Ok(Json(RoomResponse {
-        id: room.id,
-        slug: room.slug,
-        name: room.name,
-        description: room.description,
-        owner_id: room.owner_id,
-        visibility: room.visibility,
-        invite_code: room.invite_code,
-        created_at: room.created_at,
-        member_count: count + 1,
-    }))
+    Ok(Json(RoomResponse::from_record(room, count + 1)))
 }
 
 // ---------------------------------------------------------------------------
@@ -388,11 +265,10 @@ pub async fn generate_invite(
     auth: AuthUser,
     Path(room_id): Path<Uuid>,
 ) -> Result<Json<InviteCodeResponse>, AppError> {
-    let room = sqlx::query_as::<_, Room>("SELECT * FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let conn = &mut state.redis.clone();
+
+    let room = db::get_room(conn, room_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id != auth.user_id.0 {
@@ -400,13 +276,7 @@ pub async fn generate_invite(
     }
 
     let code = generate_invite_code();
-
-    sqlx::query("UPDATE rooms SET invite_code = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&code)
-        .bind(room_id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    db::set_room_invite_code(conn, room_id, room.invite_code.as_deref(), &code).await?;
 
     Ok(Json(InviteCodeResponse { invite_code: code }))
 }
@@ -420,11 +290,10 @@ pub async fn leave_room(
     auth: AuthUser,
     Path(room_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    let room = sqlx::query_as::<_, Room>("SELECT * FROM rooms WHERE id = $1")
-        .bind(room_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let conn = &mut state.redis.clone();
+
+    let room = db::get_room(conn, room_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id == auth.user_id.0 {
@@ -433,15 +302,8 @@ pub async fn leave_room(
         ));
     }
 
-    let result =
-        sqlx::query("DELETE FROM room_members WHERE room_id = $1 AND user_id = $2")
-            .bind(room_id)
-            .bind(auth.user_id.0)
-            .execute(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    if result.rows_affected() == 0 {
+    let removed = db::remove_room_member(conn, room_id, auth.user_id.0).await?;
+    if !removed {
         return Err(AppError::NotFound("not a member of this room".into()));
     }
 

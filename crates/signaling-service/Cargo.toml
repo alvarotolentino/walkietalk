@@ -10,7 +10,7 @@ axum = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true }
+redis = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
@@ -28,5 +28,5 @@ bytes = "1"
 tokio-tungstenite = "0.24"
 reqwest = { version = "0.12", features = ["json"] }
 testcontainers = "0.27.1"
-sqlx = { workspace = true }
+redis = { workspace = true }
 tokio = { version = "1", features = ["full", "test-util"] }
