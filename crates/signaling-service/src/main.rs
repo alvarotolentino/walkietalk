@@ -7,6 +7,7 @@ use tower_http::trace::TraceLayer;
 use walkietalk_signaling::config::Config;
 use walkietalk_signaling::floor::FloorManager;
 use walkietalk_signaling::hub::WsHub;
+use walkietalk_signaling::metrics::Metrics;
 use walkietalk_signaling::presence::PresenceManager;
 use walkietalk_signaling::state::AppState;
 use walkietalk_signaling::zmq_relay::{self, ZmqRelay};
@@ -78,6 +79,7 @@ async fn main() {
         presence: Arc::new(PresenceManager::new()),
         lock_key_map,
         zmq_relay,
+        metrics: Arc::new(Metrics::new()),
     });
 
     let app = walkietalk_signaling::build_app(state)

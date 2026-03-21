@@ -1,6 +1,7 @@
 pub mod config;
 pub mod floor;
 pub mod hub;
+pub mod metrics;
 pub mod models;
 pub mod presence;
 pub mod routes;
@@ -15,6 +16,7 @@ use axum::routing::get;
 use axum::Router;
 
 use routes::health::health_check;
+use routes::metrics_handler;
 use routes::rooms_router;
 use state::AppState;
 use ws::handler::ws_upgrade;
@@ -23,6 +25,7 @@ use ws::handler::ws_upgrade;
 pub fn build_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
+        .route("/metrics", get(metrics_handler))
         .route("/ws", get(ws_upgrade))
         .nest("/rooms", rooms_router())
         .with_state(state)

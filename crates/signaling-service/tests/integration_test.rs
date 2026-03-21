@@ -17,6 +17,7 @@ use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 /// Bring in the signaling crate's internals for building the server.
 use walkietalk_signaling::floor::FloorManager;
 use walkietalk_signaling::hub::WsHub;
+use walkietalk_signaling::metrics::Metrics;
 use walkietalk_signaling::presence::PresenceManager;
 use walkietalk_signaling::state::AppState;
 
@@ -43,6 +44,7 @@ async fn start_server(pool: PgPool) -> String {
         presence: Arc::new(PresenceManager::new()),
         lock_key_map: Arc::new(DashMap::new()),
         zmq_relay: None,
+        metrics: Arc::new(Metrics::new()),
     });
 
     let app = walkietalk_signaling::build_app(state);

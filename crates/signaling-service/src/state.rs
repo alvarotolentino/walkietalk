@@ -7,6 +7,7 @@ use walkietalk_shared::ids::RoomId;
 
 use crate::floor::FloorManager;
 use crate::hub::WsHub;
+use crate::metrics::Metrics;
 use crate::presence::PresenceManager;
 use crate::zmq_relay::ZmqRelay;
 
@@ -22,6 +23,8 @@ pub struct AppState {
     pub lock_key_map: Arc<DashMap<i64, RoomId>>,
     /// ZMQ relay for multi-node fan-out. `None` when running single-node.
     pub zmq_relay: Option<Arc<ZmqRelay>>,
+    /// Lightweight atomic counters for benchmarking.
+    pub metrics: Arc<Metrics>,
 }
 
 impl HasJwtSecret for AppState {

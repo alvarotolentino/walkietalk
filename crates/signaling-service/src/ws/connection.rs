@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,7 @@ pub async fn handle_connection(
     };
 
     tracing::info!(%user_id, "WebSocket connected");
+    state.metrics.ws_connections_opened.fetch_add(1, Ordering::Relaxed);
 
     // Write task: forward messages from the channel to the WebSocket sink
     let mut ws_sink = ws_sink;
@@ -66,6 +68,7 @@ pub async fn handle_connection(
                         last_activity = Instant::now();
                         match msg {
                             Message::Text(text) => {
+                                state.metrics.ws_text_messages_received.fetch_add(1, Ordering::Relaxed);
                                 handle_text_message(&text, &mut conn_state, &state).await;
                             }
                             Message::Binary(data) => {
@@ -95,6 +98,7 @@ pub async fn handle_connection(
     // Cleanup on disconnect
     cleanup_connection(&conn_state, &state).await;
     write_task.abort();
+    state.metrics.ws_connections_closed.fetch_add(1, Ordering::Relaxed);
     tracing::info!(%user_id, "WebSocket disconnected");
 }
 
@@ -277,6 +281,7 @@ async fn handle_join_room(
     );
 
     tracing::info!(%user_id, %room_id, "joined room via WS");
+    state.metrics.room_joins.fetch_add(1, Ordering::Relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +327,7 @@ async fn handle_leave_room(
     );
 
     tracing::debug!(%user_id, %room_id, "left room via WS");
+    state.metrics.room_leaves.fetch_add(1, Ordering::Relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +341,7 @@ async fn handle_floor_request(
 ) {
     let user_id = conn_state.user_id;
     tracing::info!(%user_id, %room_id, joined_rooms = ?conn_state.joined_rooms.iter().collect::<Vec<_>>(), "floor_request received");
+    state.metrics.floor_requests.fetch_add(1, Ordering::Relaxed);
 
     if !conn_state.joined_rooms.contains(&room_id) {
         tracing::warn!(%user_id, %room_id, "floor_request REJECTED: not in this room");
@@ -435,6 +442,7 @@ async fn handle_floor_request(
         Ok(true) => {
             // Floor granted
             tracing::info!(%room_id, %user_id, "floor GRANTED → sending FloorGranted");
+            state.metrics.floor_grants.fetch_add(1, Ordering::Relaxed);
             send_to_client(
                 &conn_state.tx,
                 &ServerMessage::FloorGranted { room_id, user_id },
@@ -467,6 +475,7 @@ async fn handle_floor_request(
             }
         }
         Ok(false) => {
+            state.metrics.floor_denials.fetch_add(1, Ordering::Relaxed);
             send_to_client(
                 &conn_state.tx,
                 &ServerMessage::FloorDenied {
@@ -553,6 +562,8 @@ async fn handle_binary_frame(
     state
         .ws_hub
         .broadcast_binary_to_room_except(&room_id, &user_id, data);
+    state.metrics.audio_frames_relayed.fetch_add(1, Ordering::Relaxed);
+    state.metrics.audio_bytes_relayed.fetch_add(data.len() as u64, Ordering::Relaxed);
 
     // Publish to ZMQ for multi-node fan-out (if configured)
     if let Some(ref relay) = state.zmq_relay {
@@ -573,6 +584,8 @@ async fn handle_binary_frame(
 fn send_to_client(tx: &mpsc::UnboundedSender<Message>, msg: &ServerMessage) {
     if let Ok(json) = serde_json::to_string(msg) {
         let _ = tx.send(Message::Text(json));
+        // Note: ws_text_messages_sent is tracked at the state level where state is available.
+        // For a fully accurate count, callers with access to state should increment it.
     }
 }
 
@@ -581,6 +594,8 @@ async fn release_floor_if_held(room_id: &RoomId, user_id: &UserId, state: &Arc<A
     if !state.floor_manager.is_held_by(room_id, user_id) {
         return;
     }
+
+    state.metrics.floor_releases.fetch_add(1, Ordering::Relaxed);
 
     // Use force_release (sync) to avoid needing the lock_key
     if let Some(uid) = state.floor_manager.force_release(room_id) {
