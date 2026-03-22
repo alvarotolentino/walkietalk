@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +15,7 @@ use walkietalk_shared::messages::{ClientMessage, MemberInfo, ServerMessage};
 
 use crate::hub::{ClientHandle, ConnectionState};
 use crate::models::room::get_room_member_info;
+use crate::record;
 use crate::state::AppState;
 
 /// Maximum silence before we consider a connection dead (90 seconds).
@@ -42,7 +42,7 @@ pub async fn handle_connection(
     };
 
     tracing::info!(%user_id, "WebSocket connected");
-    state.metrics.ws_connections_opened.fetch_add(1, Ordering::Relaxed);
+    record!(state.metrics, ws_connections_opened);
 
     // Write task: forward messages from the channel to the WebSocket sink
     let mut ws_sink = ws_sink;
@@ -68,7 +68,7 @@ pub async fn handle_connection(
                         last_activity = Instant::now();
                         match msg {
                             Message::Text(text) => {
-                                state.metrics.ws_text_messages_received.fetch_add(1, Ordering::Relaxed);
+                                record!(state.metrics, ws_text_messages_received);
                                 handle_text_message(&text, &mut conn_state, &state).await;
                             }
                             Message::Binary(data) => {
@@ -98,7 +98,7 @@ pub async fn handle_connection(
     // Cleanup on disconnect
     cleanup_connection(&conn_state, &state).await;
     write_task.abort();
-    state.metrics.ws_connections_closed.fetch_add(1, Ordering::Relaxed);
+    record!(state.metrics, ws_connections_closed);
     tracing::info!(%user_id, "WebSocket disconnected");
 }
 
@@ -280,7 +280,7 @@ async fn handle_join_room(
     );
 
     tracing::info!(%user_id, %room_id, "joined room via WS");
-    state.metrics.room_joins.fetch_add(1, Ordering::Relaxed);
+    record!(state.metrics, room_joins);
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ async fn handle_leave_room(
     );
 
     tracing::debug!(%user_id, %room_id, "left room via WS");
-    state.metrics.room_leaves.fetch_add(1, Ordering::Relaxed);
+    record!(state.metrics, room_leaves);
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +340,7 @@ async fn handle_floor_request(
 ) {
     let user_id = conn_state.user_id;
     tracing::info!(%user_id, %room_id, joined_rooms = ?conn_state.joined_rooms.iter().collect::<Vec<_>>(), "floor_request received");
-    state.metrics.floor_requests.fetch_add(1, Ordering::Relaxed);
+    record!(state.metrics, floor_requests);
 
     if !conn_state.joined_rooms.contains(&room_id) {
         tracing::warn!(%user_id, %room_id, "floor_request REJECTED: not in this room");
@@ -393,6 +393,7 @@ async fn handle_floor_request(
     let timeout_lock_key = lock_key;
     let on_timeout = move || {
         // This runs when the 60s timeout fires
+        record!(timeout_state.metrics, floor_timeouts);
         let holder = timeout_state.floor_manager.force_release(&timeout_room);
         if let Some(uid) = holder {
             let timeout_msg = ServerMessage::FloorTimeout {
@@ -440,7 +441,7 @@ async fn handle_floor_request(
         Ok(true) => {
             // Floor granted
             tracing::info!(%room_id, %user_id, "floor GRANTED → sending FloorGranted");
-            state.metrics.floor_grants.fetch_add(1, Ordering::Relaxed);
+            record!(state.metrics, floor_grants);
             send_to_client(
                 &conn_state.tx,
                 &ServerMessage::FloorGranted { room_id, user_id },
@@ -470,10 +471,12 @@ async fn handle_floor_request(
             if let Some(ref relay) = state.zmq_relay {
                 relay.publish_control(lock_key, &occupied_msg).await;
                 relay.publish_control(lock_key, &presence_msg).await;
+                record!(state.metrics, zmq_frames_published);
+                record!(state.metrics, zmq_frames_published);
             }
         }
         Ok(false) => {
-            state.metrics.floor_denials.fetch_add(1, Ordering::Relaxed);
+            record!(state.metrics, floor_denials);
             send_to_client(
                 &conn_state.tx,
                 &ServerMessage::FloorDenied {
@@ -560,12 +563,15 @@ async fn handle_binary_frame(
     state
         .ws_hub
         .broadcast_binary_to_room_except(&room_id, &user_id, data);
-    state.metrics.audio_frames_relayed.fetch_add(1, Ordering::Relaxed);
-    state.metrics.audio_bytes_relayed.fetch_add(data.len() as u64, Ordering::Relaxed);
+    record!(state.metrics, audio_frames_relayed);
+    record!(state.metrics, audio_bytes_relayed, data.len() as u64);
+    record!(state.metrics, ws_binary_frames_received);
+    record!(state.metrics, ws_binary_bytes_received, data.len() as u64);
 
     // Publish to ZMQ for multi-node fan-out (if configured)
     if let Some(ref relay) = state.zmq_relay {
         relay.publish_audio(wire_room_id as i64, &user_id, data).await;
+        record!(state.metrics, zmq_frames_published);
     }
 
     // If END_OF_TRANSMISSION flag is set, trigger floor release
@@ -593,7 +599,7 @@ async fn release_floor_if_held(room_id: &RoomId, user_id: &UserId, state: &Arc<A
         return;
     }
 
-    state.metrics.floor_releases.fetch_add(1, Ordering::Relaxed);
+    record!(state.metrics, floor_releases);
 
     // Use force_release (sync) to avoid needing the lock_key
     if let Some(uid) = state.floor_manager.force_release(room_id) {
@@ -620,6 +626,8 @@ async fn release_floor_if_held(room_id: &RoomId, user_id: &UserId, state: &Arc<A
             if let Some(lock_key) = find_lock_key(&state.lock_key_map, room_id) {
                 relay.publish_control(lock_key, &released_msg).await;
                 relay.publish_control(lock_key, &presence_msg).await;
+                record!(state.metrics, zmq_frames_published);
+                record!(state.metrics, zmq_frames_published);
             }
         }
     }
