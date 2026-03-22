@@ -1,6 +1,6 @@
 /// Signaling service configuration, loaded from environment variables.
 pub struct Config {
-    pub database_url: String,
+    pub redis_url: String,
     pub jwt_secret: String,
     pub listen_addr: String,
     /// ZMQ PUSH address (proxy PULL endpoint). If absent, ZMQ is disabled.
@@ -13,11 +13,11 @@ impl Config {
     /// Read configuration from environment variables.
     ///
     /// # Panics
-    /// Panics if `DATABASE_URL` or `JWT_SECRET` are not set.
+    /// Panics if `REDIS_URL` or `JWT_SECRET` are not set.
     pub fn from_env() -> Self {
         Self {
-            database_url: std::env::var("DATABASE_URL")
-                .expect("DATABASE_URL must be set"),
+            redis_url: std::env::var("REDIS_URL")
+                .expect("REDIS_URL must be set"),
             jwt_secret: std::env::var("JWT_SECRET")
                 .expect("JWT_SECRET must be set"),
             listen_addr: std::env::var("SIGNALING_LISTEN_ADDR")

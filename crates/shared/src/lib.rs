@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod auth;
+pub mod db;
 pub mod enums;
 pub mod error;
 pub mod ids;

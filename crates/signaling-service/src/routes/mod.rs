@@ -3,17 +3,18 @@ pub mod rooms;
 
 use std::sync::Arc;
 
-use axum::extract::State;
-use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
-use axum::Json;
 use axum::Router;
 
 use crate::state::AppState;
 
 /// GET /metrics — lightweight JSON counters for benchmarking.
-pub async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(state.metrics.snapshot())
+/// Only available when compiled with `--features metrics`.
+#[cfg(feature = "metrics")]
+pub async fn metrics_handler(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl axum::response::IntoResponse {
+    axum::Json(state.metrics.snapshot())
 }
 
 /// Room REST routes under `/rooms`.

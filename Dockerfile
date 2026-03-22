@@ -11,5 +11,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /app/target/release/walkietalk-auth /app/walkietalk-auth
 COPY --from=builder /app/target/release/walkietalk-signaling /app/walkietalk-signaling
 COPY --from=builder /app/target/release/walkietalk-zmq-proxy /app/walkietalk-zmq-proxy
-COPY --from=builder /app/migrations /app/migrations
 WORKDIR /app

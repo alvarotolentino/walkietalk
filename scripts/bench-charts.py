@@ -78,7 +78,7 @@ containers = docker["container"].unique()
 cmap = {
     "walkietalk-signaling-1-1": "#2563eb",
     "walkietalk-signaling-2-1": "#7c3aed",
-    "walkietalk-postgres-1":    "#dc2626",
+    "walkietalk-luxdb-1":       "#dc2626",
     "walkietalk-auth-1":        "#16a34a",
     "walkietalk-zmq-proxy-1":   "#ea580c",
 }
@@ -303,13 +303,14 @@ print(f"  Avg Audio FPS: {sig1['audio_fps'].mean():.1f}")
 print(f"  Peak Audio:    {sig1['audio_kbps'].max():.1f} kbps")
 
 s1 = docker[docker["container"] == "walkietalk-signaling-1-1"]
-pg = docker[docker["container"] == "walkietalk-postgres-1"]
+lux = docker[docker["container"] == "walkietalk-luxdb-1"]
 print(f"\nDocker (signaling-1):")
 print(f"  CPU %:         {s1['cpu_pct'].min():.2f} – {s1['cpu_pct'].max():.2f} (avg {s1['cpu_pct'].mean():.2f})")
 print(f"  Memory:        {s1['mem_usage_mb'].min():.1f} – {s1['mem_usage_mb'].max():.1f} MB")
 print(f"  Net RX:        {s1['net_rx_mb'].iloc[-1]:.2f} MB  TX: {s1['net_tx_mb'].iloc[-1]:.2f} MB")
-print(f"\nDocker (postgres):")
-print(f"  CPU %:         {pg['cpu_pct'].min():.2f} – {pg['cpu_pct'].max():.2f} (avg {pg['cpu_pct'].mean():.2f})")
-print(f"  Memory:        {pg['mem_usage_mb'].min():.1f} – {pg['mem_usage_mb'].max():.1f} MB")
+if not lux.empty:
+    print(f"\nDocker (luxdb):")
+    print(f"  CPU %:         {lux['cpu_pct'].min():.2f} – {lux['cpu_pct'].max():.2f} (avg {lux['cpu_pct'].mean():.2f})")
+    print(f"  Memory:        {lux['mem_usage_mb'].min():.1f} – {lux['mem_usage_mb'].max():.1f} MB")
 
 print(f"\nCharts saved to: {out_dir.resolve()}")

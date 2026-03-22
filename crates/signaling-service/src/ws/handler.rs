@@ -7,6 +7,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use walkietalk_shared::auth::decode_jwt;
+use walkietalk_shared::db;
 use walkietalk_shared::error::AppError;
 use walkietalk_shared::ids::UserId;
 
@@ -33,11 +34,8 @@ pub async fn ws_upgrade(
     let user_id = UserId(sub_uuid);
 
     // Look up display_name for this user
-    let display_name: String = sqlx::query_scalar("SELECT display_name FROM users WHERE id = $1")
-        .bind(sub_uuid)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
+    let display_name = db::get_display_name(&mut state.redis.clone(), sub_uuid)
+        .await?
         .ok_or_else(|| AppError::Unauthorized("user not found".into()))?;
 
     Ok(ws.on_upgrade(move |socket: WebSocket| {

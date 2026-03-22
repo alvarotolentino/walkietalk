@@ -64,4 +64,31 @@ impl AppState {
     pub async fn signaling_base_url(&self) -> String {
         self.signaling_url.read().await.clone()
     }
+
+    /// Graceful shutdown: stop audio devices, close WebSocket transport,
+    /// and clear active rooms — called when the app is about to exit.
+    pub async fn graceful_shutdown(&self) {
+        // 1. Stop audio capture (mic release)
+        if let Some(handle) = self.capture.lock().await.take() {
+            handle.stop();
+            tracing::info!("Audio capture stopped");
+        }
+
+        // 2. Stop audio playback (speaker release + decoder reset)
+        if let Some(handle) = self.playback.lock().await.take() {
+            handle.stop();
+            tracing::info!("Audio playback stopped");
+        }
+
+        // 3. Shut down WebSocket transport (heartbeat, read loop, reconnect)
+        if let Some(transport) = self.transport.lock().await.take() {
+            transport.shutdown().await;
+            tracing::info!("WebSocket transport shut down");
+        }
+
+        // 4. Clear active rooms so a future reconnect starts clean
+        self.active_rooms.write().await.clear();
+
+        tracing::info!("Graceful shutdown complete");
+    }
 }

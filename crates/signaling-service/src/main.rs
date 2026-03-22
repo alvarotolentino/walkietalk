@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use sqlx::postgres::PgPool;
 use tower_http::trace::TraceLayer;
 
+use walkietalk_shared::db;
 use walkietalk_signaling::config::Config;
 use walkietalk_signaling::floor::FloorManager;
 use walkietalk_signaling::hub::WsHub;
@@ -25,19 +25,11 @@ async fn main() {
 
     let config = Config::from_env();
 
-    let pool = PgPool::connect(&config.database_url)
+    let redis = db::connect(&config.redis_url)
         .await
-        .expect("failed to connect to database");
+        .expect("failed to connect to Redis/LuxDB");
 
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("failed to run database migrations");
-
-    // Dedicated pool for floor advisory locks (max 100 connections, per spec)
-    let floor_manager = FloorManager::new(&config.database_url, 100)
-        .await
-        .expect("failed to create floor manager");
+    let floor_manager = FloorManager::new(redis.clone());
 
     // Optionally connect to ZMQ fan-out proxy
     let zmq_relay = match (&config.zmq_push_addr, &config.zmq_sub_addr) {
@@ -72,7 +64,7 @@ async fn main() {
     };
 
     let state = Arc::new(AppState {
-        db: pool,
+        redis,
         jwt_secret: config.jwt_secret,
         ws_hub,
         floor_manager: Arc::new(floor_manager),

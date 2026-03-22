@@ -24,8 +24,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = { version = "0.7", features = ["macros", "ws"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
-# Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono"] }
+# Database (LuxDB — Redis-compatible)
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # Auth
 argon2 = { version = "0.5", features = ["std"] }

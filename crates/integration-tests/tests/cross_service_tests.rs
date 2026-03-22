@@ -20,8 +20,8 @@ use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 async fn full_ptt_journey_through_both_services() {
     let db = TestDb::start().await;
 
-    let auth_base = start_auth_server(db.pool.clone()).await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let auth_base = start_auth_server(db.redis.clone()).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
 
     let s = unique_suffix();
 
@@ -68,11 +68,11 @@ async fn full_ptt_journey_through_both_services() {
     assert!(b_floor.iter().any(|m| matches!(m, ServerMessage::FloorOccupied { .. })));
 
     // Get lock_key for audio wire format
-    let lock_key: i64 = sqlx::query_scalar("SELECT lock_key FROM rooms WHERE id = $1")
-        .bind(room_id.0)
-        .fetch_one(&db.pool)
+    use walkietalk_shared::db;
+    let lock_key: i64 = db::get_room_lock_key(&mut db.redis.clone(), room_id.0)
         .await
-        .expect("get lock_key");
+        .expect("get lock_key")
+        .expect("lock_key should exist");
 
     // Alice sends audio
     let frame = AudioFrame {
@@ -121,8 +121,8 @@ async fn full_ptt_journey_through_both_services() {
 async fn auth_token_works_across_services() {
     let db = TestDb::start().await;
 
-    let auth_base = start_auth_server(db.pool.clone()).await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let auth_base = start_auth_server(db.redis.clone()).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
 
     let s = unique_suffix();
 
@@ -162,8 +162,8 @@ async fn auth_token_works_across_services() {
 async fn refresh_then_use_new_token() {
     let db = TestDb::start().await;
 
-    let auth_base = start_auth_server(db.pool.clone()).await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let auth_base = start_auth_server(db.redis.clone()).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
 
     let s = unique_suffix();
 

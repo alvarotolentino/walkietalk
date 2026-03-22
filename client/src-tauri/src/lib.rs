@@ -4,6 +4,8 @@ pub mod http_client;
 pub mod state;
 pub mod transport;
 
+use tauri::Manager;
+
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,6 +53,13 @@ pub fn run() {
             commands::audio::start_audio_playback,
             commands::audio::stop_audio_playback,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running WalkieTalk");
+        .build(tauri::generate_context!())
+        .expect("error while building WalkieTalk")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                let state = app.state::<AppState>();
+                // Block briefly on the async shutdown to release resources cleanly
+                tauri::async_runtime::block_on(state.graceful_shutdown());
+            }
+        });
 }

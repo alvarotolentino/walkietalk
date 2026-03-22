@@ -17,10 +17,6 @@ pub struct RoomId(pub Uuid);
 #[serde(transparent)]
 pub struct DeviceId(pub Uuid);
 
-/// Stable integer key used as the PostgreSQL advisory lock identifier for a room's floor lock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct RoomLockKey(pub i64);
 
 impl fmt::Display for UserId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -35,12 +31,6 @@ impl fmt::Display for RoomId {
 }
 
 impl fmt::Display for DeviceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl fmt::Display for RoomLockKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }

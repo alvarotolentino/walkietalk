@@ -16,17 +16,20 @@ use axum::routing::get;
 use axum::Router;
 
 use routes::health::health_check;
-use routes::metrics_handler;
 use routes::rooms_router;
 use state::AppState;
 use ws::handler::ws_upgrade;
 
 /// Build the signaling-service Axum router. Used by `main` and integration tests.
 pub fn build_app(state: Arc<AppState>) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/health", get(health_check))
-        .route("/metrics", get(metrics_handler))
         .route("/ws", get(ws_upgrade))
-        .nest("/rooms", rooms_router())
-        .with_state(state)
+        .nest("/rooms", rooms_router());
+
+    // Expose /metrics only when compiled with the `metrics` feature
+    #[cfg(feature = "metrics")]
+    let router = router.route("/metrics", get(routes::metrics_handler));
+
+    router.with_state(state)
 }

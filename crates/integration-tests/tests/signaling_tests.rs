@@ -14,10 +14,10 @@ use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 #[tokio::test]
 async fn create_and_get_room() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (uid, jwt) = create_test_user_direct(&db.pool, &format!("alice_{s}")).await;
+    let (uid, jwt) = create_test_user_direct(&db.redis, &format!("alice_{s}")).await;
 
     let room = create_room(&sig_base, &jwt, &format!("Room_{s}"), "public").await;
     let room_id = room["id"].as_str().expect("room id");
@@ -43,10 +43,10 @@ async fn create_and_get_room() {
 #[tokio::test]
 async fn list_user_rooms() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_uid, jwt) = create_test_user_direct(&db.pool, &format!("lister_{s}")).await;
+    let (_uid, jwt) = create_test_user_direct(&db.redis, &format!("lister_{s}")).await;
 
     // Create two rooms
     create_room(&sig_base, &jwt, &format!("Room1_{s}"), "private").await;
@@ -69,10 +69,10 @@ async fn list_user_rooms() {
 #[tokio::test]
 async fn list_public_rooms() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_uid, jwt) = create_test_user_direct(&db.pool, &format!("pub_{s}")).await;
+    let (_uid, jwt) = create_test_user_direct(&db.redis, &format!("pub_{s}")).await;
 
     create_room(&sig_base, &jwt, &format!("PublicRoom_{s}"), "public").await;
     create_room(&sig_base, &jwt, &format!("PrivateRoom_{s}"), "private").await;
@@ -96,11 +96,11 @@ async fn list_public_rooms() {
 #[tokio::test]
 async fn update_room_owner_only() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_owner, owner_jwt) = create_test_user_direct(&db.pool, &format!("owner_{s}")).await;
-    let (_other, other_jwt) = create_test_user_direct(&db.pool, &format!("other_{s}")).await;
+    let (_owner, owner_jwt) = create_test_user_direct(&db.redis, &format!("owner_{s}")).await;
+    let (_other, other_jwt) = create_test_user_direct(&db.redis, &format!("other_{s}")).await;
 
     let room = create_room(&sig_base, &owner_jwt, &format!("MyRoom_{s}"), "public").await;
     let room_id = room["id"].as_str().unwrap();
@@ -137,11 +137,11 @@ async fn update_room_owner_only() {
 #[tokio::test]
 async fn delete_room_owner_only() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_owner, owner_jwt) = create_test_user_direct(&db.pool, &format!("delowner_{s}")).await;
-    let (_other, other_jwt) = create_test_user_direct(&db.pool, &format!("delother_{s}")).await;
+    let (_owner, owner_jwt) = create_test_user_direct(&db.redis, &format!("delowner_{s}")).await;
+    let (_other, other_jwt) = create_test_user_direct(&db.redis, &format!("delother_{s}")).await;
 
     let room = create_room(&sig_base, &owner_jwt, &format!("DelRoom_{s}"), "public").await;
     let room_id = room["id"].as_str().unwrap();
@@ -173,11 +173,11 @@ async fn delete_room_owner_only() {
 #[tokio::test]
 async fn join_private_room_with_invite_code() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_owner, owner_jwt) = create_test_user_direct(&db.pool, &format!("invown_{s}")).await;
-    let (_joiner, joiner_jwt) = create_test_user_direct(&db.pool, &format!("invjoin_{s}")).await;
+    let (_owner, owner_jwt) = create_test_user_direct(&db.redis, &format!("invown_{s}")).await;
+    let (_joiner, joiner_jwt) = create_test_user_direct(&db.redis, &format!("invjoin_{s}")).await;
 
     let room = create_room(&sig_base, &owner_jwt, &format!("PrivRoom_{s}"), "private").await;
     let room_id = room["id"].as_str().unwrap();
@@ -221,11 +221,11 @@ async fn join_private_room_with_invite_code() {
 #[tokio::test]
 async fn leave_room() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_owner, owner_jwt) = create_test_user_direct(&db.pool, &format!("leaveown_{s}")).await;
-    let (_joiner, joiner_jwt) = create_test_user_direct(&db.pool, &format!("leavejoin_{s}")).await;
+    let (_owner, owner_jwt) = create_test_user_direct(&db.redis, &format!("leaveown_{s}")).await;
+    let (_joiner, joiner_jwt) = create_test_user_direct(&db.redis, &format!("leavejoin_{s}")).await;
 
     let room = create_room(&sig_base, &owner_jwt, &format!("LeaveRoom_{s}"), "public").await;
     let room_id = room["id"].as_str().unwrap();
@@ -251,11 +251,11 @@ async fn leave_room() {
 #[tokio::test]
 async fn ws_join_room_and_floor_management() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (user_a, jwt_a) = create_test_user_direct(&db.pool, &format!("wsa_{s}")).await;
-    let (_user_b, jwt_b) = create_test_user_direct(&db.pool, &format!("wsb_{s}")).await;
+    let (user_a, jwt_a) = create_test_user_direct(&db.redis, &format!("wsa_{s}")).await;
+    let (_user_b, jwt_b) = create_test_user_direct(&db.redis, &format!("wsb_{s}")).await;
 
     // Create a room, user B joins
     let room = create_room(&sig_base, &jwt_a, &format!("WsRoom_{s}"), "public").await;
@@ -320,11 +320,11 @@ async fn ws_join_room_and_floor_management() {
 #[tokio::test]
 async fn ws_audio_relay_and_eot() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_user_a, jwt_a) = create_test_user_direct(&db.pool, &format!("auda_{s}")).await;
-    let (_user_b, jwt_b) = create_test_user_direct(&db.pool, &format!("audb_{s}")).await;
+    let (_user_a, jwt_a) = create_test_user_direct(&db.redis, &format!("auda_{s}")).await;
+    let (_user_b, jwt_b) = create_test_user_direct(&db.redis, &format!("audb_{s}")).await;
 
     let room = create_room(&sig_base, &jwt_a, &format!("AudioRoom_{s}"), "public").await;
     let room_id_str = room["id"].as_str().unwrap();
@@ -348,11 +348,11 @@ async fn ws_audio_relay_and_eot() {
     let _ = ws_recv_many(&mut ws_b, 3).await; // FloorOccupied + presence
 
     // Get lock_key for wire room_id
-    let lock_key: i64 = sqlx::query_scalar("SELECT lock_key FROM rooms WHERE id = $1")
-        .bind(room_id.0)
-        .fetch_one(&db.pool)
+    use walkietalk_shared::db;
+    let lock_key: i64 = db::get_room_lock_key(&mut db.redis.clone(), room_id.0)
         .await
-        .expect("get lock_key");
+        .expect("get lock_key")
+        .expect("lock_key should exist");
 
     // Send audio frame
     let frame = AudioFrame {
@@ -407,7 +407,7 @@ async fn ws_audio_relay_and_eot() {
 #[tokio::test]
 async fn ws_unauthorized_connection_rejected() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
 
     // Try to connect with an invalid token
     let url = format!("ws://{sig_base}/ws?token=invalid-jwt-token");
@@ -419,7 +419,7 @@ async fn ws_unauthorized_connection_rejected() {
 #[tokio::test]
 async fn health_check() {
     let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.pool.clone(), &db.db_url).await;
+    let sig_base = start_signaling_server(db.redis.clone()).await;
 
     let client = reqwest::Client::new();
     let res = client
