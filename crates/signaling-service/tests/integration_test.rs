@@ -78,7 +78,7 @@ async fn create_test_user(redis: &RedisConn, username: &str) -> (UserId, String)
 // Helper: create a public room via REST, return its RoomId
 // ---------------------------------------------------------------------------
 
-async fn create_test_room(base_url: &str, token: &str, name: &str) -> RoomId {
+async fn create_test_room(base_url: &str, token: &str, name: &str) -> (RoomId, String) {
     let client = reqwest::Client::new();
     let res = client
         .post(format!("http://{base_url}/rooms"))
@@ -94,19 +94,20 @@ async fn create_test_room(base_url: &str, token: &str, name: &str) -> RoomId {
     assert_eq!(res.status(), 201, "create room failed: {}", res.status());
     let body: serde_json::Value = res.json().await.expect("parse room body");
     let id_str = body["id"].as_str().expect("room id");
-    RoomId(id_str.parse().expect("parse room uuid"))
+    let invite_code = body["invite_code"].as_str().expect("invite_code").to_string();
+    (RoomId(id_str.parse().expect("parse room uuid")), invite_code)
 }
 
 // ---------------------------------------------------------------------------
 // Helper: have a user join a room via REST
 // ---------------------------------------------------------------------------
 
-async fn join_room_rest(base_url: &str, token: &str, room_id: &RoomId) {
+async fn join_room_rest(base_url: &str, token: &str, room_id: &RoomId, invite_code: &str) {
     let client = reqwest::Client::new();
     let res = client
         .post(format!("http://{base_url}/rooms/{}/join", room_id.0))
         .header("Authorization", format!("Bearer {token}"))
-        .json(&serde_json::json!({}))
+        .json(&serde_json::json!({ "invite_code": invite_code }))
         .send()
         .await
         .expect("join room request");
@@ -226,10 +227,10 @@ async fn test_two_clients_ptt_audio_exchange() {
     let (_user_b, jwt_b) = create_test_user(&redis, &format!("bob_{suffix}")).await;
 
     // ── User A creates a public room ───────────────────────────────────────
-    let room_id = create_test_room(&base, &jwt_a, &format!("TestRoom_{suffix}")).await;
+    let (room_id, invite_code) = create_test_room(&base, &jwt_a, &format!("TestRoom_{suffix}")).await;
 
     // ── User B joins the room via REST ─────────────────────────────────────
-    join_room_rest(&base, &jwt_b, &room_id).await;
+    join_room_rest(&base, &jwt_b, &room_id, &invite_code).await;
 
     // ── Both connect via WebSocket ─────────────────────────────────────────
     let mut ws_a = ws_connect(&base, &jwt_a).await;
