@@ -87,6 +87,12 @@ mod inner {
         pub redis_commands_issued: AtomicU64,
     }
 
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Metrics {
         pub fn new() -> Self {
             Self {
@@ -181,6 +187,7 @@ mod inner {
     use serde::Serialize;
 
     /// Zero-cost stub — all methods are no-ops.
+    #[derive(Default)]
     pub struct Metrics;
 
     impl Metrics {
