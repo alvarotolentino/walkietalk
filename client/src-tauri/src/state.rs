@@ -1,8 +1,8 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::audio::capture::CaptureHandle;
-use crate::audio::playback::PlaybackHandle;
+use crate::audio::engine::{AudioEngine, AudioReceiver};
 use crate::transport::manager::TransportManager;
 
 /// User info cached after login.
@@ -30,10 +30,10 @@ pub struct AppState {
     pub transport: Mutex<Option<TransportManager>>,
     /// Room IDs currently joined via WebSocket (for rejoin on reconnect).
     pub active_rooms: RwLock<HashSet<String>>,
-    /// Active audio capture handle (set when transmitting).
-    pub capture: Mutex<Option<CaptureHandle>>,
-    /// Active audio playback handle (set when receiving).
-    pub playback: Mutex<Option<PlaybackHandle>>,
+    /// Audio engine — owns both CPAL streams for the room session.
+    pub audio_engine: Mutex<Option<AudioEngine>>,
+    /// Shared audio receiver — used by transport read loop (no tokio Mutex).
+    pub audio_rx: Arc<AudioReceiver>,
 }
 
 impl AppState {
@@ -45,8 +45,8 @@ impl AppState {
             user: RwLock::new(None),
             transport: Mutex::new(None),
             active_rooms: RwLock::new(HashSet::new()),
-            capture: Mutex::new(None),
-            playback: Mutex::new(None),
+            audio_engine: Mutex::new(None),
+            audio_rx: Arc::new(AudioReceiver::new()),
         }
     }
 
@@ -68,25 +68,19 @@ impl AppState {
     /// Graceful shutdown: stop audio devices, close WebSocket transport,
     /// and clear active rooms — called when the app is about to exit.
     pub async fn graceful_shutdown(&self) {
-        // 1. Stop audio capture (mic release)
-        if let Some(handle) = self.capture.lock().await.take() {
-            handle.stop();
-            tracing::info!("Audio capture stopped");
+        // 1. Shut down audio engine (stops capture + playback, drops CPAL streams)
+        if let Some(engine) = self.audio_engine.lock().await.take() {
+            engine.shutdown();
+            tracing::info!("Audio engine stopped");
         }
 
-        // 2. Stop audio playback (speaker release + decoder reset)
-        if let Some(handle) = self.playback.lock().await.take() {
-            handle.stop();
-            tracing::info!("Audio playback stopped");
-        }
-
-        // 3. Shut down WebSocket transport (heartbeat, read loop, reconnect)
+        // 2. Shut down WebSocket transport (heartbeat, read loop, reconnect)
         if let Some(transport) = self.transport.lock().await.take() {
             transport.shutdown().await;
             tracing::info!("WebSocket transport shut down");
         }
 
-        // 4. Clear active rooms so a future reconnect starts clean
+        // 3. Clear active rooms so a future reconnect starts clean
         self.active_rooms.write().await.clear();
 
         tracing::info!("Graceful shutdown complete");

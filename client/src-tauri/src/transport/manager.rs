@@ -6,7 +6,6 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::ws::{connect_ws, WsWriteTx};
-use walkietalk_shared::audio::AudioFrame;
 use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 use crate::state::AppState;
 
@@ -142,17 +141,10 @@ impl TransportManager {
                     Self::dispatch_text(&text, app, last_ack);
                 }
                 WsMessage::Binary(data) => {
-                    // Decode AudioFrame and push to playback jitter buffer
-                    if let Ok(frame) = AudioFrame::decode(&data) {
-                        let state = app.state::<AppState>();
-                        if let Ok(guard) = state.playback.try_lock() {
-                            if let Some(ref handle) = *guard {
-                                if let Err(e) = handle.push_frame(&frame) {
-                                    tracing::warn!("Playback push error: {e}");
-                                }
-                            }
-                        };
-                    }
+                    // Push raw frame to AudioReceiver (std::sync::Mutex, no
+                    // tokio Mutex contention with WASAPI init).
+                    let state = app.state::<AppState>();
+                    state.audio_rx.push_frame(&data);
                 }
                 WsMessage::Close(_) => {
                     tracing::info!("WebSocket closed by server");
@@ -281,20 +273,14 @@ impl TransportManager {
         }
     }
 
-    /// Stop audio capture and playback when the WS connection drops.
+    /// Deactivate audio capture and playback when the WS connection drops.
+    /// The engine stays alive for potential reconnect.
     async fn stop_audio(app: &AppHandle) {
         let state = app.state::<AppState>();
-        {
-            let mut cap = state.capture.lock().await;
-            if let Some(handle) = cap.take() {
-                handle.stop();
-            }
-        }
-        {
-            let mut pb = state.playback.lock().await;
-            if let Some(handle) = pb.take() {
-                handle.stop();
-            }
+        let mut eng = state.audio_engine.lock().await;
+        if let Some(ref mut engine) = *eng {
+            engine.deactivate_capture();
+            engine.deactivate_playback();
         }
     }
 

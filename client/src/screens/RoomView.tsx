@@ -57,13 +57,18 @@ const RoomView: Component = () => {
       } catch (e) {
         console.error("Failed to join room:", e);
       }
+      // Initialise persistent audio engine for this room session
+      try {
+        await invoke("init_audio_engine");
+      } catch (e) {
+        console.error("Failed to init audio engine:", e);
+      }
     }
   });
 
   onCleanup(async () => {
     if (roomId()) {
-      invoke("stop_audio_capture").catch(() => {});
-      invoke("stop_audio_playback").catch(() => {});
+      invoke("shutdown_audio_engine").catch(() => {});
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();
@@ -94,7 +99,6 @@ const RoomView: Component = () => {
 
   // Listen for Tauri events — payloads are parsed JSON objects from dispatch_text
   useTauriEvent("room_state", (data: any) => {
-    console.log("[WS] room_state", data);
     const memberList = (data.members ?? []).map((m: any) => ({
       user_id: m.user_id,
       display_name: m.display_name,
@@ -131,7 +135,6 @@ const RoomView: Component = () => {
   );
 
   useTauriEvent("floor_granted", (data: any) => {
-    console.log("[WS] floor_granted", data, "me:", user()?.id);
     const granted = data.user_id;
     const me = user();
     if (granted && me && granted === me.id) {
@@ -222,8 +225,7 @@ const RoomView: Component = () => {
 
   const handleBack = async () => {
     if (roomId()) {
-      invoke("stop_audio_capture").catch(() => {});
-      invoke("stop_audio_playback").catch(() => {});
+      invoke("shutdown_audio_engine").catch(() => {});
       await leaveRoomWs(roomId());
       clearActiveRoom();
       resetAudioState();
