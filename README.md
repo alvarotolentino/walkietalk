@@ -226,32 +226,120 @@ python scripts/bench-charts.py bench-results/<timestamp>
 
 ```
 walkietalk/
+├── .github/workflows/
+│   └── ci.yml                  # CI pipeline: check, unit-tests, integration-tests
 ├── crates/
-│   ├── shared/              # Domain types, messages, audio codec, JWT, Redis DB layer
+│   ├── shared/                 # Domain types, messages, audio codec, JWT, Redis DB layer
 │   │   └── src/
-│   │       └── db.rs        # Redis data-access: users, rooms, devices, floor locks
-│   ├── auth-service/        # REST auth service (Axum)
-│   ├── signaling-service/   # WebSocket signaling (Axum + ZMQ)
+│   │       ├── audio.rs        # Binary audio frame wire format (19-byte header)
+│   │       ├── auth.rs         # JWT claims, Argon2 password hashing, token encode/decode
+│   │       ├── db.rs           # Redis data-access: users, rooms, devices, floor locks
+│   │       ├── enums.rs        # Visibility, RoomRole enums
+│   │       ├── error.rs        # AppError → HTTP status mapping
+│   │       ├── extractors.rs   # Axum JWT extractor (AuthUser)
+│   │       ├── ids.rs          # Newtype UUIDs: UserId, RoomId, DeviceId
+│   │       └── messages.rs     # ClientMessage / ServerMessage enums (WS protocol)
+│   ├── auth-service/           # REST auth service (Axum)
 │   │   └── src/
-│   │       ├── hub.rs       # WebSocket connection registry
-│   │       ├── floor.rs     # Floor lock manager (Redis SET NX EX + DashMap cache)
-│   │       ├── metrics.rs   # Atomic counters for WS, audio, floor, room stats
-│   │       ├── presence.rs  # Online/offline/speaking presence
-│   │       ├── zmq_relay.rs # ZeroMQ PUSH/SUB relay
-│   │       ├── ws/          # WebSocket message handlers
-│   │       ├── routes/      # REST room/membership + /health + /metrics endpoints
-│   │       └── models/      # Domain models
-│   ├── zmq-proxy/           # PULL/PUB fan-out proxy
-│   └── integration-tests/   # Cross-service E2E tests
+│   │       ├── config.rs       # Env config: REDIS_URL, JWT_SECRET, AUTH_LISTEN_ADDR
+│   │       ├── models.rs       # Request/response DTOs (register, login, refresh, etc.)
+│   │       ├── state.rs        # AppState: RedisConn + JWT secret
+│   │       └── routes/
+│   │           ├── auth.rs     # POST /auth/{register,login,refresh,logout}
+│   │           ├── users.rs    # GET/POST/DELETE /users/me, /users/me/devices
+│   │           └── health.rs   # GET /health
+│   ├── signaling-service/      # WebSocket signaling (Axum + ZMQ)
+│   │   └── src/
+│   │       ├── config.rs       # Env config inc. ZMQ_PUSH_ADDR, ZMQ_SUB_ADDR
+│   │       ├── state.rs        # AppState: Redis, Hub, Floor, Presence, ZMQ, Metrics
+│   │       ├── hub.rs          # WsHub: lock-free per-room connection registry (DashMap)
+│   │       ├── floor.rs        # FloorManager: Redis SET NX EX 60 + DashMap fast-path cache
+│   │       ├── presence.rs     # PresenceManager: per-room user status tracking
+│   │       ├── metrics.rs      # Feature-gated atomic counters (audio, WS, floor, rooms)
+│   │       ├── utils.rs        # Invite code and slug generation
+│   │       ├── zmq_relay.rs    # ZeroMQ PUSH/SUB relay for multi-node fan-out
+│   │       ├── models/
+│   │       │   └── room.rs     # Room DTOs: Create/Join/Update requests, RoomResponse
+│   │       ├── routes/
+│   │       │   ├── rooms.rs    # CRUD + join + invite + leave endpoints
+│   │       │   └── health.rs   # GET /health
+│   │       └── ws/
+│   │           ├── handler.rs  # GET /ws upgrade with JWT validation
+│   │           └── connection.rs # WS loop: message routing, audio relay, presence
+│   ├── zmq-proxy/              # PULL/PUB fan-out proxy
+│   │   └── src/
+│   │       ├── main.rs         # Standalone proxy binary
+│   │       └── lib.rs          # run_proxy: stateless frame relay PULL→PUB
+│   └── integration-tests/      # Cross-service E2E tests
+│       └── tests/
+│           ├── common/         # Shared fixtures: Docker containers, service startup
+│           ├── auth_tests.rs   # Auth registration, login, refresh, device tests
+│           ├── signaling_tests.rs  # Room CRUD, floor control, WS tests
+│           └── cross_service_tests.rs  # Auth→Signaling full PTT journey
 ├── client/
-│   ├── src/                 # SolidJS + TypeScript frontend
-│   ├── src-tauri/           # Tauri v2 Rust backend (audio, WS, REST)
+│   ├── src/                    # SolidJS + TypeScript frontend
+│   │   ├── App.tsx             # Root app component
+│   │   ├── router.ts           # Client-side routing
+│   │   ├── screens/
+│   │   │   ├── Login.tsx       # User login
+│   │   │   ├── Register.tsx    # New account
+│   │   │   ├── RoomList.tsx    # Browse rooms
+│   │   │   ├── RoomView.tsx    # Active room (PTT, members, floor)
+│   │   │   ├── RoomSettings.tsx
+│   │   │   ├── CreateRoom.tsx
+│   │   │   ├── JoinByCode.tsx  # Invite-code room join
+│   │   │   ├── Profile.tsx
+│   │   │   └── Splash.tsx
+│   │   ├── components/
+│   │   │   ├── PttButton.tsx   # Push-to-Talk (hold to transmit)
+│   │   │   ├── VuMeter.tsx     # Audio level visualisation
+│   │   │   ├── FloorBanner.tsx # Current speaker banner
+│   │   │   ├── MemberList.tsx  # Room member roster
+│   │   │   ├── PresenceDot.tsx # Online/speaking indicator
+│   │   │   ├── ConnectionBar.tsx # Network status
+│   │   │   ├── Countdown.tsx   # Floor hold timer
+│   │   │   └── ...             # Avatar, Badge, Modal, Toast, Toggle, etc.
+│   │   ├── stores/
+│   │   │   ├── auth.ts         # User & token state
+│   │   │   ├── activeRoom.ts   # Current room, members, floor holder
+│   │   │   ├── rooms.ts        # Room list
+│   │   │   ├── audio.ts        # Capture/playback state
+│   │   │   ├── connection.ts   # WebSocket connection state
+│   │   │   └── settings.ts     # User preferences
+│   │   ├── hooks/
+│   │   │   └── useTauriEvent.ts
+│   │   ├── utils/              # format, haptics, sounds
+│   │   └── styles/             # global.css, reset.css, tokens.css
+│   ├── src-tauri/              # Tauri v2 Rust backend
+│   │   └── src/
+│   │       ├── lib.rs          # Tauri app builder, command registration
+│   │       ├── state.rs        # AppState: user, tokens, active room
+│   │       ├── http_client.rs  # JWT-injected reqwest wrapper
+│   │       ├── audio/
+│   │       │   ├── engine.rs   # AudioEngine main loop, VU meter
+│   │       │   ├── capture.rs  # cpal mic → Opus encode → WS send
+│   │       │   └── playback.rs # Opus decode → jitter buffer → cpal speaker
+│   │       ├── commands/
+│   │       │   ├── audio.rs    # start/stop capture/playback
+│   │       │   ├── auth.rs     # login, register, logout, refresh
+│   │       │   ├── connection.rs # WS connect/disconnect/heartbeat
+│   │       │   ├── floor.rs    # request/release floor
+│   │       │   ├── rooms.rs    # list/create/join/leave rooms
+│   │       │   ├── realtime.rs # event listeners, presence
+│   │       │   ├── settings.rs # user preferences
+│   │       │   └── misc.rs     # app version, platform info
+│   │       └── transport/
+│   │           ├── manager.rs  # WS lifecycle, heartbeat (30s), auto-reconnect
+│   │           └── ws.rs       # tokio-tungstenite split read/write channels
 │   └── vite.config.ts
-├── scripts/                 # Benchmark collection and charting tools
-├── docker-compose.yml       # Full-stack local dev environment
-├── docker-compose.bench.yml # Benchmark overlay (logging off)
-├── Dockerfile               # Multi-stage build (rust:1.88-bookworm)
-└── docs/                    # Technical specification
+├── scripts/
+│   ├── bench-collect.sh        # Metrics collection during benchmarks
+│   ├── bench-charts.py         # Chart generation from collected data
+│   └── test-multinode.sh       # Multi-node deployment test
+├── docs/                       # Technical specification & diagrams
+├── docker-compose.yml          # Full-stack dev: LuxDB, Auth, ZMQ Proxy, 2× Signaling
+├── docker-compose.bench.yml    # Benchmark overlay (logging off)
+└── Dockerfile                  # Multi-stage build (rust:1.88-bookworm → debian:bookworm-slim)
 ```
 
 ## Key Technical Decisions
