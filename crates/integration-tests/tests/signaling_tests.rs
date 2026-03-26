@@ -108,9 +108,10 @@ async fn update_room_owner_only() {
 
     let room = create_room(&sig_base, &owner_jwt, &format!("MyRoom_{s}"), "public").await;
     let room_id = room["id"].as_str().unwrap();
+    let invite_code = room["invite_code"].as_str().unwrap();
 
     // Other user joins
-    join_room(&sig_base, &other_jwt, room_id).await;
+    join_room(&sig_base, &other_jwt, room_id, invite_code).await;
 
     // Other user tries to update → should fail
     let client = reqwest::Client::new();
@@ -149,8 +150,9 @@ async fn delete_room_owner_only() {
 
     let room = create_room(&sig_base, &owner_jwt, &format!("DelRoom_{s}"), "public").await;
     let room_id = room["id"].as_str().unwrap();
+    let invite_code = room["invite_code"].as_str().unwrap();
 
-    join_room(&sig_base, &other_jwt, room_id).await;
+    join_room(&sig_base, &other_jwt, room_id, invite_code).await;
 
     // Non-owner delete → 403
     let client = reqwest::Client::new();
@@ -240,8 +242,9 @@ async fn leave_room() {
 
     let room = create_room(&sig_base, &owner_jwt, &format!("LeaveRoom_{s}"), "public").await;
     let room_id = room["id"].as_str().unwrap();
+    let invite_code = room["invite_code"].as_str().unwrap();
 
-    join_room(&sig_base, &joiner_jwt, room_id).await;
+    join_room(&sig_base, &joiner_jwt, room_id, invite_code).await;
 
     // Leave
     let client = reqwest::Client::new();
@@ -271,8 +274,9 @@ async fn ws_join_room_and_floor_management() {
     // Create a room, user B joins
     let room = create_room(&sig_base, &jwt_a, &format!("WsRoom_{s}"), "public").await;
     let room_id_str = room["id"].as_str().unwrap();
+    let invite_code = room["invite_code"].as_str().unwrap();
     let room_id = RoomId(room_id_str.parse().unwrap());
-    join_room(&sig_base, &jwt_b, room_id_str).await;
+    join_room(&sig_base, &jwt_b, room_id_str, invite_code).await;
 
     // Connect WebSockets
     let mut ws_a = ws_connect(&sig_base, &jwt_a).await;
@@ -345,8 +349,9 @@ async fn ws_audio_relay_and_eot() {
 
     let room = create_room(&sig_base, &jwt_a, &format!("AudioRoom_{s}"), "public").await;
     let room_id_str = room["id"].as_str().unwrap();
+    let invite_code = room["invite_code"].as_str().unwrap();
     let room_id = RoomId(room_id_str.parse().unwrap());
-    join_room(&sig_base, &jwt_b, room_id_str).await;
+    join_room(&sig_base, &jwt_b, room_id_str, invite_code).await;
 
     let mut ws_a = ws_connect(&sig_base, &jwt_a).await;
     let mut ws_b = ws_connect(&sig_base, &jwt_b).await;
