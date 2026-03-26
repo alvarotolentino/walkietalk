@@ -63,12 +63,17 @@ const PttButton: Component<PttButtonProps> = (props) => {
     return "idle";
   });
 
+  const micSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>`;
+  const micOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12"/><line x1="12" y1="19" x2="12" y2="22"/></svg>`;
+  const lockSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+  const hourglassSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>`;
+
   const stateConfig: Record<PttState, { bg: string; label: string; icon: string }> = {
-    idle: { bg: "var(--color-ptt-idle)", label: "Hold to talk", icon: "🎤" },
-    requesting: { bg: "var(--color-ptt-requesting)", label: "Requesting...", icon: "⏳" },
-    transmitting: { bg: "var(--color-ptt-transmitting)", label: "Release to stop", icon: "🎤" },
-    occupied: { bg: "var(--color-ptt-occupied)", label: `${props.speakerName ?? "Someone"} is talking`, icon: "🔒" },
-    disconnected: { bg: "var(--color-ptt-disabled)", label: "Not connected", icon: "📵" },
+    idle: { bg: "var(--color-ptt-idle)", label: "Hold to talk", icon: micSvg },
+    requesting: { bg: "var(--color-ptt-requesting)", label: "Requesting...", icon: hourglassSvg },
+    transmitting: { bg: "var(--color-ptt-transmitting)", label: "Release to stop", icon: micSvg },
+    occupied: { bg: "var(--color-ptt-occupied)", label: `${props.speakerName ?? "Someone"} is talking`, icon: lockSvg },
+    disconnected: { bg: "var(--color-ptt-disabled)", label: "Not connected", icon: micOffSvg },
   };
 
   const cfg = () => stateConfig[pttState()];
@@ -158,6 +163,9 @@ const PttButton: Component<PttButtonProps> = (props) => {
       <Show when={pttState() === "transmitting"}>
         <VuMeter level={sendLevel()} variant="send" />
       </Show>
+      <Show when={pttState() === "transmitting"}>
+        <Countdown seconds={floorTimeRemaining()} />
+      </Show>
       <button
         role="button"
         aria-label={ariaLabel()}
@@ -193,9 +201,7 @@ const PttButton: Component<PttButtonProps> = (props) => {
           "-webkit-user-select": "none",
         }}
       >
-        <span style={{ "font-size": "40px" }} aria-hidden="true">
-          {cfg().icon}
-        </span>
+        <span style={{ "font-size": "40px", display: "flex", "align-items": "center", "justify-content": "center" }} aria-hidden="true" innerHTML={cfg().icon} />
       </button>
       <span
         style={{
@@ -206,9 +212,6 @@ const PttButton: Component<PttButtonProps> = (props) => {
       >
         {cfg().label}
       </span>
-      <Show when={pttState() === "transmitting"}>
-        <Countdown seconds={floorTimeRemaining()} />
-      </Show>
     </div>
   );
 };

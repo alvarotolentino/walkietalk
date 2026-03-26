@@ -46,7 +46,9 @@ const Input: Component<InputProps> = (props) => {
           type={props.type ?? "text"}
           value={props.value}
           onInput={(e) => props.onInput(e.currentTarget.value)}
-          autocomplete={props.autocomplete}
+          autocomplete={props.autocomplete ?? "off"}
+          attr:data-form-type="other"
+          attr:data-lpignore="true"
           placeholder={props.placeholder}
           disabled={props.disabled}
           maxLength={props.maxLength}

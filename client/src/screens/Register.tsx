@@ -102,7 +102,6 @@ const Register: Component = () => {
           label="Display name"
           value={displayName()}
           onInput={setDisplayName}
-          autocomplete="name"
           placeholder="John Doe"
           disabled={loading()}
         />
@@ -110,7 +109,6 @@ const Register: Component = () => {
           label="Username"
           value={username()}
           onInput={setUsername}
-          autocomplete="username"
           placeholder="johndoe"
           disabled={loading()}
           error={usernameError()}
@@ -121,7 +119,6 @@ const Register: Component = () => {
           type="email"
           value={email()}
           onInput={setEmail}
-          autocomplete="email"
           placeholder="you@example.com"
           disabled={loading()}
           error={emailError()}
@@ -132,7 +129,6 @@ const Register: Component = () => {
             type={showPassword() ? "text" : "password"}
             value={password()}
             onInput={setPassword}
-            autocomplete="new-password"
             placeholder="••••••••"
             disabled={loading()}
             helper="At least 8 characters."

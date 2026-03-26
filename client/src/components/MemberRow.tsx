@@ -47,7 +47,7 @@ const MemberRow: Component<MemberRowProps> = (props) => {
         {props.isSelf && " (you)"}
       </span>
       {props.isFloorHolder
-        ? <span aria-label="Speaking" style={{ "font-size": "16px", animation: "pulse 0.67s ease-in-out infinite" }}>🎤</span>
+        ? <span aria-label="Speaking" style={{ display: "flex", "align-items": "center", animation: "pulse 0.67s ease-in-out infinite", color: "var(--color-presence-speaking)" }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg></span>
         : <PresenceDot status={props.status} />
       }
     </li>

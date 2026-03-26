@@ -34,6 +34,13 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Placeholder text: semi-transparent */
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+
 /* Screen container base */
 .screen {
   display: flex;
