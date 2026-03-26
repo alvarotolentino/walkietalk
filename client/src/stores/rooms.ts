@@ -4,19 +4,16 @@ import { invoke } from "@tauri-apps/api/core";
 export interface Room {
   id: string;
   name: string;
-  description?: string;
-  visibility: "public" | "private";
+  description: string | null;
   member_count: number;
   owner_id: string;
   invite_code?: string;
-  is_member?: boolean;
 }
 
 export interface RoomSettings {
   id: string;
   name: string;
-  description: string;
-  visibility: "public" | "private";
+  description: string | null;
   owner_id: string;
   member_count: number;
   invite_code?: string;
@@ -33,7 +30,6 @@ export interface RoomResult {
   ok: boolean;
   error?: string;
   room?: Room;
-  rooms?: Room[];
   invite_code?: string;
 }
 
@@ -53,10 +49,9 @@ export async function fetchRooms(): Promise<void> {
 export async function createRoom(
   name: string,
   description: string | undefined,
-  visibility: "public" | "private",
 ): Promise<RoomResult> {
   try {
-    const room = await invoke<Room>("create_room", { name, description: description ?? "", visibility });
+    const room = await invoke<Room>("create_room", { name, description: description ?? "" });
     setRooms((prev) => [...prev, room]);
     return { ok: true, room };
   } catch (e: unknown) {
@@ -77,33 +72,11 @@ export async function joinByCode(code: string): Promise<RoomResult> {
   }
 }
 
-export async function joinRoom(roomId: string): Promise<RoomResult> {
-  try {
-    const room = await invoke<Room>("join_room", { roomId });
-    setRooms((prev) => {
-      if (prev.some((r) => r.id === room.id)) return prev;
-      return [...prev, room];
-    });
-    return { ok: true, room };
-  } catch (e: unknown) {
-    return { ok: false, error: String(e) };
-  }
-}
-
 export async function leaveRoom(roomId: string): Promise<RoomResult> {
   try {
     await invoke("leave_room", { roomId });
     setRooms((prev) => prev.filter((r) => r.id !== roomId));
     return { ok: true };
-  } catch (e: unknown) {
-    return { ok: false, error: String(e) };
-  }
-}
-
-export async function fetchPublicRooms(search: string): Promise<RoomResult> {
-  try {
-    const list = await invoke<Room[]>("get_public_rooms", { search });
-    return { ok: true, rooms: list };
   } catch (e: unknown) {
     return { ok: false, error: String(e) };
   }
@@ -120,13 +93,13 @@ export async function getRoomSettings(roomId: string): Promise<RoomResult & { ro
 
 export async function updateRoom(
   roomId: string,
-  changes: { name: string; description?: string; visibility: "public" | "private" },
+  changes: { name: string; description?: string },
 ): Promise<RoomResult> {
   try {
-    const { name, description, visibility } = changes;
-    await invoke("update_room", { roomId, name, description: description ?? "", visibility });
+    const { name, description } = changes;
+    await invoke("update_room", { roomId, name, description: description ?? "" });
     setRooms((prev) =>
-      prev.map((r) => (r.id === roomId ? { ...r, name, description, visibility } : r))
+      prev.map((r) => (r.id === roomId ? { ...r, name, description: description ?? null } : r))
     );
     return { ok: true };
   } catch (e: unknown) {

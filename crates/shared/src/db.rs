@@ -450,7 +450,6 @@ pub struct RoomRecord {
     pub name: String,
     pub description: Option<String>,
     pub owner_id: Uuid,
-    pub visibility: String,
     pub invite_code: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -463,7 +462,6 @@ pub async fn create_room(
     description: Option<&str>,
     slug: &str,
     owner_id: Uuid,
-    visibility: &str,
 ) -> Result<RoomRecord, AppError> {
     let id = Uuid::new_v4();
     let now = Utc::now();
@@ -478,8 +476,6 @@ pub async fn create_room(
     let key = format!("room:{id}");
     let desc = description.unwrap_or("");
 
-    let score = -(now.timestamp_millis() as f64); // negative for newest-first ZRANGEBYSCORE
-
     let mut pipe = redis::pipe();
     pipe.atomic()
         .cmd("HSET")
@@ -488,21 +484,12 @@ pub async fn create_room(
         .arg("name").arg(name)
         .arg("description").arg(desc)
         .arg("owner_id").arg(owner_id.to_string())
-        .arg("visibility").arg(visibility)
         .arg("invite_code").arg("")
         .arg("lock_key").arg(lock_key)
         .arg("created_at").arg(&now_str)
         .arg("updated_at").arg(&now_str)
         .ignore()
         .cmd("SET").arg(format!("room:slug:{slug}")).arg(id.to_string()).ignore();
-
-    if visibility == "public" {
-        pipe.cmd("ZADD")
-            .arg("rooms:public")
-            .arg(score)
-            .arg(id.to_string())
-            .ignore();
-    }
 
     pipe.exec_async(conn)
         .await
@@ -515,7 +502,6 @@ pub async fn create_room(
         name: name.to_string(),
         description: description.map(String::from),
         owner_id,
-        visibility: visibility.to_string(),
         invite_code: None,
         created_at: now,
         updated_at: now,
@@ -547,7 +533,6 @@ fn parse_room_record(
         name: req_field(map, "name")?.to_string(),
         description: opt_field(map, "description"),
         owner_id: uuid_field(map, "owner_id")?,
-        visibility: req_field(map, "visibility")?.to_string(),
         invite_code: opt_field(map, "invite_code"),
         created_at: string_to_ts(req_field(map, "created_at")?)?,
         updated_at: string_to_ts(req_field(map, "updated_at")?)?,
@@ -560,8 +545,6 @@ pub async fn update_room(
     id: Uuid,
     name: &str,
     description: Option<&str>,
-    visibility: &str,
-    old_visibility: &str,
 ) -> Result<(), AppError> {
     let now_str = ts_to_string(&Utc::now());
     let key = format!("room:{id}");
@@ -572,33 +555,8 @@ pub async fn update_room(
         .arg(&key)
         .arg("name").arg(name)
         .arg("description").arg(description.unwrap_or(""))
-        .arg("visibility").arg(visibility)
         .arg("updated_at").arg(&now_str)
         .ignore();
-
-    // Manage public room index
-    if old_visibility != visibility {
-        if visibility == "public" {
-            let created_at_str: Option<String> = conn
-                .hget(&key, "created_at")
-                .await
-                .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
-            if let Some(s) = created_at_str {
-                let dt = string_to_ts(&s)?;
-                let score = -(dt.timestamp_millis() as f64);
-                pipe.cmd("ZADD")
-                    .arg("rooms:public")
-                    .arg(score)
-                    .arg(id.to_string())
-                    .ignore();
-            }
-        } else {
-            pipe.cmd("ZREM")
-                .arg("rooms:public")
-                .arg(id.to_string())
-                .ignore();
-        }
-    }
 
     pipe.exec_async(conn)
         .await
@@ -632,8 +590,7 @@ pub async fn delete_room(conn: &mut RedisConn, room: &RoomRecord) -> Result<(), 
     // Remove the room itself and all indexes
     pipe.cmd("DEL").arg(format!("room:{}", room.id)).ignore()
         .cmd("DEL").arg(format!("room:{}:members", room.id)).ignore()
-        .cmd("DEL").arg(format!("room:slug:{}", room.slug)).ignore()
-        .cmd("ZREM").arg("rooms:public").arg(room.id.to_string()).ignore();
+        .cmd("DEL").arg(format!("room:slug:{}", room.slug)).ignore();
 
     if let Some(ref code) = room.invite_code {
         pipe.cmd("DEL")
@@ -654,12 +611,28 @@ pub async fn delete_room(conn: &mut RedisConn, room: &RoomRecord) -> Result<(), 
 }
 
 /// Set a room's invite code (replaces old one if any).
+///
+/// Returns `true` if the code was set, `false` if a collision occurred
+/// (another room already holds `new_code`).
 pub async fn set_room_invite_code(
     conn: &mut RedisConn,
     room_id: Uuid,
     old_code: Option<&str>,
     new_code: &str,
-) -> Result<(), AppError> {
+) -> Result<bool, AppError> {
+    // Atomically claim the invite index key — fails if another room holds it.
+    let was_set: bool = redis::cmd("SET")
+        .arg(format!("room:invite:{new_code}"))
+        .arg(room_id.to_string())
+        .arg("NX")
+        .query_async(conn)
+        .await
+        .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
+
+    if !was_set {
+        return Ok(false);
+    }
+
     let mut pipe = redis::pipe();
     pipe.atomic();
 
@@ -672,14 +645,33 @@ pub async fn set_room_invite_code(
         .arg(format!("room:{room_id}"))
         .arg("invite_code").arg(new_code)
         .arg("updated_at").arg(ts_to_string(&Utc::now()))
-        .ignore()
-        .cmd("SET").arg(format!("room:invite:{new_code}")).arg(room_id.to_string()).ignore();
+        .ignore();
 
     pipe.exec_async(conn)
         .await
         .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
 
-    Ok(())
+    Ok(true)
+}
+
+/// Look up a room ID by its invite code.
+pub async fn get_room_id_by_invite_code(
+    conn: &mut RedisConn,
+    code: &str,
+) -> Result<Option<Uuid>, AppError> {
+    let val: Option<String> = redis::cmd("GET")
+        .arg(format!("room:invite:{code}"))
+        .query_async(conn)
+        .await
+        .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
+    match val {
+        Some(s) => {
+            let id = Uuid::parse_str(&s)
+                .map_err(|e| AppError::Internal(format!("bad room id in invite index: {e}")))?;
+            Ok(Some(id))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Get the lock_key for a room.
@@ -828,48 +820,6 @@ pub async fn list_user_rooms(
     // Sort newest first
     rooms.sort_by(|a, b| b.0.created_at.cmp(&a.0.created_at));
     Ok(rooms)
-}
-
-/// List public rooms (newest first, with pagination and optional name filter).
-pub async fn list_public_rooms(
-    conn: &mut RedisConn,
-    search: Option<&str>,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<(RoomRecord, i64)>, AppError> {
-    // Get all public room IDs from sorted set (already sorted newest-first by negative score)
-    let all_ids: Vec<String> = conn
-        .zrangebyscore("rooms:public", "-inf", "+inf")
-        .await
-        .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
-
-    let mut result = Vec::new();
-    for rid_str in &all_ids {
-        let rid: Uuid = rid_str
-            .parse()
-            .map_err(|e| AppError::Internal(format!("uuid parse: {e}")))?;
-        if let Some(room) = get_room(conn, rid).await? {
-            // Name filter (case-insensitive contains)
-            if let Some(pattern) = search {
-                if !room.name.to_lowercase().contains(&pattern.to_lowercase()) {
-                    continue;
-                }
-            }
-            let count = room_member_count(conn, rid).await?;
-            result.push((room, count));
-        }
-    }
-
-    // Apply pagination
-    let start = offset as usize;
-    let end = (offset + limit) as usize;
-    let page = if start < result.len() {
-        result[start..end.min(result.len())].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    Ok(page)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -7,7 +7,6 @@ export enum Screen {
   RoomList = "RoomList",
   CreateRoom = "CreateRoom",
   JoinByCode = "JoinByCode",
-  PublicRooms = "PublicRooms",
   RoomView = "RoomView",
   RoomSettings = "RoomSettings",
   Profile = "Profile",

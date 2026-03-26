@@ -16,8 +16,6 @@ pub struct CreateRoomRequest {
     #[validate(length(min = 1, max = 128))]
     pub name: String,
     pub description: Option<String>,
-    /// "public" or "private" (default "private")
-    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -25,19 +23,11 @@ pub struct UpdateRoomRequest {
     #[validate(length(min = 1, max = 128))]
     pub name: Option<String>,
     pub description: Option<String>,
-    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct JoinRoomRequest {
     pub invite_code: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PublicRoomQuery {
-    pub search: Option<String>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +41,6 @@ pub struct RoomResponse {
     pub name: String,
     pub description: Option<String>,
     pub owner_id: Uuid,
-    pub visibility: String,
     pub invite_code: Option<String>,
     pub created_at: DateTime<Utc>,
     pub member_count: i64,
@@ -65,7 +54,6 @@ impl RoomResponse {
             name: r.name,
             description: r.description,
             owner_id: r.owner_id,
-            visibility: r.visibility,
             invite_code: r.invite_code,
             created_at: r.created_at,
             member_count,
@@ -80,10 +68,17 @@ pub struct RoomDetailResponse {
     pub name: String,
     pub description: Option<String>,
     pub owner_id: Uuid,
-    pub visibility: String,
     pub invite_code: Option<String>,
     pub created_at: DateTime<Utc>,
-    pub members: Vec<MemberInfo>,
+    pub member_count: i64,
+    pub members: Vec<RoomDetailMember>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RoomDetailMember {
+    pub user_id: Uuid,
+    pub display_name: String,
+    pub role: &'static str,
 }
 
 #[derive(Debug, Serialize)]

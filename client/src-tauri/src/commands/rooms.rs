@@ -9,7 +9,6 @@ pub struct Room {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub visibility: String,
     pub member_count: i64,
     pub owner_id: String,
     pub invite_code: Option<String>,
@@ -19,8 +18,7 @@ pub struct Room {
 pub struct RoomSettings {
     pub id: String,
     pub name: String,
-    pub description: String,
-    pub visibility: String,
+    pub description: Option<String>,
     pub owner_id: String,
     pub member_count: i64,
     pub invite_code: Option<String>,
@@ -45,7 +43,6 @@ pub async fn get_rooms(state: State<'_, AppState>) -> Result<Vec<Room>, String> 
 pub async fn create_room(
     name: String,
     description: String,
-    visibility: String,
     state: State<'_, AppState>,
 ) -> Result<Room, String> {
     let http = HttpClient::new();
@@ -55,7 +52,6 @@ pub async fn create_room(
         .json(&serde_json::json!({
             "name": name,
             "description": description,
-            "visibility": visibility,
         }));
     http.send_json(req).await
 }
@@ -74,17 +70,6 @@ pub async fn join_by_code(
 }
 
 #[tauri::command]
-pub async fn join_room(
-    room_id: String,
-    state: State<'_, AppState>,
-) -> Result<Room, String> {
-    let http = HttpClient::new();
-    let path = format!("/rooms/{room_id}/join");
-    let req = http.sig_post(&state, &path).await?.json(&serde_json::json!({}));
-    http.send_json(req).await
-}
-
-#[tauri::command]
 pub async fn leave_room(
     room_id: String,
     state: State<'_, AppState>,
@@ -93,22 +78,6 @@ pub async fn leave_room(
     let path = format!("/rooms/{room_id}/leave");
     let req = http.sig_post(&state, &path).await?;
     http.send_empty(req).await
-}
-
-#[tauri::command]
-pub async fn get_public_rooms(
-    search: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<Room>, String> {
-    let http = HttpClient::new();
-    let path = if search.is_empty() {
-        "/rooms/public".to_string()
-    } else {
-        let encoded = urlencoding::encode(&search);
-        format!("/rooms/public?search={encoded}")
-    };
-    let req = http.sig_get(&state, &path).await?;
-    http.send_json(req).await
 }
 
 #[tauri::command]
@@ -127,7 +96,6 @@ pub async fn update_room(
     room_id: String,
     name: String,
     description: String,
-    visibility: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let http = HttpClient::new();
@@ -138,7 +106,6 @@ pub async fn update_room(
         .json(&serde_json::json!({
             "name": name,
             "description": description,
-            "visibility": visibility,
         }));
     http.send_empty(req).await
 }

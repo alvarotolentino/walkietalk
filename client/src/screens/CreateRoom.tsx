@@ -3,14 +3,12 @@ import { navigate, Screen } from "../router";
 import { createRoom } from "../stores/rooms";
 import Button from "../components/Button";
 import Input from "../components/Input";
-import Toggle from "../components/Toggle";
 import BottomSheet from "../components/BottomSheet";
 import { showToast } from "../components/Toast";
 
 const CreateRoom: Component = () => {
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
-  const [isPublic, setIsPublic] = createSignal(true);
   const [loading, setLoading] = createSignal(false);
 
   const isValid = () => name().length >= 1 && name().length <= 128;
@@ -19,11 +17,7 @@ const CreateRoom: Component = () => {
     if (!isValid() || loading()) return;
     setLoading(true);
 
-    const result = await createRoom(
-      name(),
-      description() || undefined,
-      isPublic() ? "public" : "private"
-    );
+    const result = await createRoom(name(), description() || undefined);
     setLoading(false);
 
     if (result.ok && result.room) {
@@ -67,12 +61,13 @@ const CreateRoom: Component = () => {
               "margin-bottom": "var(--space-1)",
             }}
           >
-            Description
+            Description (optional)
           </label>
           <textarea
             value={description()}
             onInput={(e) => setDescription(e.currentTarget.value)}
-            placeholder="What's this room about? (optional)"
+            placeholder="What's this room about?"
+            autocomplete="off"
             maxLength={500}
             disabled={loading()}
             rows={3}
@@ -91,25 +86,6 @@ const CreateRoom: Component = () => {
           />
         </div>
 
-        <div>
-          <Toggle
-            label={isPublic() ? "Public" : "Private"}
-            checked={isPublic()}
-            onChange={setIsPublic}
-          />
-          <p
-            style={{
-              "font-size": "var(--text-sm)",
-              color: "var(--color-text-tertiary)",
-              "margin-top": "var(--space-1)",
-            }}
-          >
-            {isPublic()
-              ? "Anyone can find and join this room."
-              : "Only people with an invite code can join."}
-          </p>
-        </div>
-
         <Button
           variant="primary"
           disabled={!isValid() || loading()}
@@ -117,7 +93,7 @@ const CreateRoom: Component = () => {
           type="submit"
           fullWidth
         >
-          Create
+          Create Room
         </Button>
       </form>
     </BottomSheet>

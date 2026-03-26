@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use uuid::Uuid;
@@ -12,7 +12,7 @@ use walkietalk_shared::extractors::AuthUser;
 use walkietalk_shared::ids::RoomId;
 
 use crate::models::room::{
-    CreateRoomRequest, InviteCodeResponse, JoinRoomRequest, PublicRoomQuery,
+    CreateRoomRequest, InviteCodeResponse, JoinRoomRequest, RoomDetailMember,
     RoomDetailResponse, RoomResponse, UpdateRoomRequest, get_room_member_info,
 };
 use crate::state::AppState;
@@ -30,13 +30,6 @@ pub async fn create_room(
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let visibility = req.visibility.as_deref().unwrap_or("private");
-    if visibility != "public" && visibility != "private" {
-        return Err(AppError::BadRequest(
-            "visibility must be 'public' or 'private'".into(),
-        ));
-    }
-
     let slug = generate_slug(&req.name);
     let conn = &mut state.redis.clone();
 
@@ -46,15 +39,32 @@ pub async fn create_room(
         req.description.as_deref(),
         &slug,
         auth.user_id.0,
-        visibility,
     )
     .await?;
 
     db::add_room_member(conn, room.id, auth.user_id.0, "owner").await?;
 
+    // Auto-generate an invite code so the room is joinable immediately.
+    let mut code = generate_invite_code();
+    let mut attempts = 0u8;
+    loop {
+        let was_set = db::set_room_invite_code(conn, room.id, None, &code).await?;
+        if was_set {
+            break;
+        }
+        attempts += 1;
+        if attempts >= 5 {
+            return Err(AppError::Internal("failed to generate a unique invite code".into()));
+        }
+        code = generate_invite_code();
+    }
+
+    let mut room_with_code = room;
+    room_with_code.invite_code = Some(code);
+
     Ok((
         StatusCode::CREATED,
-        Json(RoomResponse::from_record(room, 1)),
+        Json(RoomResponse::from_record(room_with_code, 1)),
     ))
 }
 
@@ -73,29 +83,6 @@ pub async fn list_rooms(
         .into_iter()
         .map(|(rec, count)| RoomResponse::from_record(rec, count))
         .collect();
-
-    Ok(Json(rooms))
-}
-
-// ---------------------------------------------------------------------------
-// GET /rooms/public
-// ---------------------------------------------------------------------------
-
-pub async fn list_public_rooms(
-    State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
-    Query(params): Query<PublicRoomQuery>,
-) -> Result<Json<Vec<RoomResponse>>, AppError> {
-    let limit = params.limit.unwrap_or(20).min(100);
-    let offset = params.offset.unwrap_or(0).max(0);
-    let conn = &mut state.redis.clone();
-
-    let records = db::list_public_rooms(conn, params.search.as_deref(), limit, offset).await?;
-
-    let mut rooms = Vec::with_capacity(records.len());
-    for (rec, count) in records {
-        rooms.push(RoomResponse::from_record(rec, count));
-    }
 
     Ok(Json(rooms))
 }
@@ -120,7 +107,16 @@ pub async fn get_room(
         .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
-    let members = get_room_member_info(conn, &rid).await?;
+    let members_raw = get_room_member_info(conn, &rid).await?;
+    let member_count = members_raw.len() as i64;
+    let members: Vec<RoomDetailMember> = members_raw
+        .into_iter()
+        .map(|m| RoomDetailMember {
+            user_id: m.user_id.0,
+            display_name: m.display_name,
+            role: if m.user_id.0 == room.owner_id { "owner" } else { "member" },
+        })
+        .collect();
 
     Ok(Json(RoomDetailResponse {
         id: room.id,
@@ -128,9 +124,9 @@ pub async fn get_room(
         name: room.name,
         description: room.description,
         owner_id: room.owner_id,
-        visibility: room.visibility,
         invite_code: room.invite_code,
         created_at: room.created_at,
+        member_count,
         members,
     }))
 }
@@ -158,19 +154,10 @@ pub async fn update_room(
         return Err(AppError::Forbidden("only the owner can update the room".into()));
     }
 
-    if let Some(ref v) = req.visibility {
-        if v != "public" && v != "private" {
-            return Err(AppError::BadRequest(
-                "visibility must be 'public' or 'private'".into(),
-            ));
-        }
-    }
-
     let name = req.name.as_deref().unwrap_or(&room.name);
     let description = req.description.as_deref().or(room.description.as_deref());
-    let visibility = req.visibility.as_deref().unwrap_or(&room.visibility);
 
-    db::update_room(conn, room_id, name, description, visibility, &room.visibility).await?;
+    db::update_room(conn, room_id, name, description).await?;
 
     let member_count = db::room_member_count(conn, room_id).await?;
 
@@ -180,7 +167,6 @@ pub async fn update_room(
         name: name.to_string(),
         description: description.map(String::from),
         owner_id: room.owner_id,
-        visibility: visibility.to_string(),
         invite_code: room.invite_code,
         created_at: room.created_at,
         member_count,
@@ -227,20 +213,56 @@ pub async fn join_room(
         .await?
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
-    // Check access
-    if room.visibility == "private" {
-        let provided = req
-            .invite_code
-            .as_deref()
-            .ok_or_else(|| AppError::Forbidden("invite code required for private rooms".into()))?;
-        let expected = room
-            .invite_code
-            .as_deref()
-            .ok_or_else(|| AppError::Forbidden("room has no active invite code".into()))?;
-        if provided != expected {
-            return Err(AppError::Forbidden("invalid invite code".into()));
-        }
+    // All rooms require a valid invite code to join
+    let provided = req
+        .invite_code
+        .as_deref()
+        .ok_or_else(|| AppError::Forbidden("invite code required".into()))?;
+    let expected = room
+        .invite_code
+        .as_deref()
+        .ok_or_else(|| AppError::Forbidden("room has no active invite code".into()))?;
+    if provided != expected {
+        return Err(AppError::Forbidden("invalid invite code".into()));
     }
+
+    if db::is_room_member(conn, room_id, auth.user_id.0).await? {
+        return Err(AppError::Conflict("already a member of this room".into()));
+    }
+
+    let count = db::room_member_count(conn, room_id).await?;
+    if count >= 500 {
+        return Err(AppError::Forbidden("room is full (max 500 members)".into()));
+    }
+
+    db::add_room_member(conn, room_id, auth.user_id.0, "member").await?;
+
+    Ok(Json(RoomResponse::from_record(room, count + 1)))
+}
+
+// ---------------------------------------------------------------------------
+// POST /rooms/join  (join by invite code, no room ID needed)
+// ---------------------------------------------------------------------------
+
+pub async fn join_by_code(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<JoinRoomRequest>,
+) -> Result<Json<RoomResponse>, AppError> {
+    let code = req
+        .invite_code
+        .as_deref()
+        .ok_or_else(|| AppError::BadRequest("invite_code is required".into()))?;
+
+    let conn = &mut state.redis.clone();
+
+    let room_id = db::get_room_id_by_invite_code(conn, code)
+        .await?
+        .ok_or_else(|| AppError::NotFound("invalid invite code".into()))?;
+
+    let room = db::get_room(conn, room_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if db::is_room_member(conn, room_id, auth.user_id.0).await? {
         return Err(AppError::Conflict("already a member of this room".into()));
@@ -275,8 +297,20 @@ pub async fn generate_invite(
         return Err(AppError::Forbidden("only the owner can generate invite codes".into()));
     }
 
-    let code = generate_invite_code();
-    db::set_room_invite_code(conn, room_id, room.invite_code.as_deref(), &code).await?;
+    // Retry on collision (up to 5 attempts) to guarantee uniqueness.
+    let mut code = generate_invite_code();
+    let mut attempts = 0u8;
+    loop {
+        let was_set = db::set_room_invite_code(conn, room_id, room.invite_code.as_deref(), &code).await?;
+        if was_set {
+            break;
+        }
+        attempts += 1;
+        if attempts >= 5 {
+            return Err(AppError::Internal("failed to generate a unique invite code".into()));
+        }
+        code = generate_invite_code();
+    }
 
     Ok(Json(InviteCodeResponse { invite_code: code }))
 }

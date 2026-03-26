@@ -20,9 +20,8 @@ pub async fn metrics_handler(
 /// Room REST routes under `/rooms`.
 pub fn rooms_router() -> Router<Arc<AppState>> {
     Router::new()
-        // Static route first to avoid `:id` capturing "public"
-        .route("/public", get(rooms::list_public_rooms))
         .route("/", get(rooms::list_rooms).post(rooms::create_room))
+        .route("/join", post(rooms::join_by_code))
         .route(
             "/:id",
             get(rooms::get_room)

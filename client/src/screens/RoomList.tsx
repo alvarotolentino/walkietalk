@@ -1,17 +1,15 @@
 import { type Component, createSignal, onMount, For, Show, createMemo } from "solid-js";
 import { navigate, Screen } from "../router";
-import { rooms, fetchRooms, leaveRoom } from "../stores/rooms";
+import { rooms, fetchRooms } from "../stores/rooms";
 import { user } from "../stores/auth";
 import { connectionState, connect } from "../stores/connection";
 import Avatar from "../components/Avatar";
 import Badge from "../components/Badge";
 import EmptyState from "../components/EmptyState";
-import Toast, { showToast } from "../components/Toast";
+import Toast from "../components/Toast";
 
 const RoomList: Component = () => {
   const [search, setSearch] = createSignal("");
-  const [refreshing, setRefreshing] = createSignal(false);
-  const [showFab, setShowFab] = createSignal(false);
 
   onMount(async () => {
     await fetchRooms();
@@ -26,21 +24,6 @@ const RoomList: Component = () => {
     if (!q) return list;
     return list.filter((r) => r.name.toLowerCase().includes(q));
   });
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchRooms();
-    setRefreshing(false);
-  };
-
-  const handleLeave = async (roomId: string, roomName: string) => {
-    const result = await leaveRoom(roomId);
-    if (result.ok) {
-      showToast(`Left ${roomName}`, "info");
-    } else {
-      showToast("Failed to leave room.", "error");
-    }
-  };
 
   return (
     <div class="screen" style={{ display: "flex", "flex-direction": "column" }}>
@@ -68,16 +51,17 @@ const RoomList: Component = () => {
         </button>
       </header>
 
-      {/* Search */}
-      <div style={{ padding: "var(--space-3) var(--space-4)" }}>
+      {/* Search + Join */}
+      <div style={{ padding: "var(--space-3) var(--space-4)", display: "flex", "align-items": "center", gap: "var(--space-2)" }}>
         <input
           type="search"
-          placeholder="Search rooms..."
+          placeholder="Search rooms"
           value={search()}
           onInput={(e) => setSearch(e.currentTarget.value)}
+          autocomplete="off"
           aria-label="Search rooms"
           style={{
-            width: "100%",
+            flex: "1",
             padding: "var(--space-3) var(--space-4)",
             background: "var(--color-bg-tertiary)",
             border: "1px solid var(--color-border-default)",
@@ -87,6 +71,20 @@ const RoomList: Component = () => {
             outline: "none",
           }}
         />
+        <button
+          onClick={() => navigate(Screen.JoinByCode)}
+          style={{
+            padding: "var(--space-3) var(--space-4)",
+            background: "var(--color-bg-tertiary)",
+            color: "var(--color-text-primary)",
+            "border-radius": "var(--radius-md)",
+            "font-size": "var(--text-sm)",
+            "font-weight": "var(--font-medium)",
+            "white-space": "nowrap",
+          }}
+        >
+          Join
+        </button>
       </div>
 
       {/* Room list */}
@@ -147,7 +145,7 @@ const RoomList: Component = () => {
                       roomName: room.name,
                     })
                   }
-                  aria-label={`${room.name}, ${room.member_count} members, ${room.visibility}`}
+                  aria-label={`${room.name}, ${room.member_count} members`}
                 >
                   <div style={{ flex: "1", "min-width": "0" }}>
                     <div
@@ -168,7 +166,6 @@ const RoomList: Component = () => {
                         "margin-top": "var(--space-1)",
                       }}
                     >
-                      {room.visibility === "private" ? "🔒" : "🌐"}{" "}
                       {room.member_count} member{room.member_count !== 1 ? "s" : ""}
                     </div>
                   </div>
@@ -180,24 +177,10 @@ const RoomList: Component = () => {
         </Show>
       </div>
 
-      {/* Pull to refresh hint */}
-      <Show when={refreshing()}>
-        <div
-          style={{
-            "text-align": "center",
-            padding: "var(--space-2)",
-            color: "var(--color-text-secondary)",
-            "font-size": "var(--text-sm)",
-          }}
-        >
-          Refreshing...
-        </div>
-      </Show>
-
-      {/* FAB */}
+      {/* FAB — Create Room only */}
       <button
-        onClick={() => setShowFab(!showFab())}
-        aria-label="Create or join a room"
+        onClick={() => navigate(Screen.CreateRoom)}
+        aria-label="Create room"
         style={{
           position: "fixed",
           bottom: "calc(var(--space-8) + env(safe-area-inset-bottom, 0px))",
@@ -217,56 +200,6 @@ const RoomList: Component = () => {
       >
         +
       </button>
-
-      {/* FAB action sheet */}
-      <Show when={showFab()}>
-        <div
-          style={{
-            position: "fixed",
-            inset: "0",
-            background: "var(--color-bg-overlay)",
-            "z-index": "9",
-          }}
-          onClick={() => setShowFab(false)}
-        />
-        <div
-          style={{
-            position: "fixed",
-            bottom: "calc(var(--space-20) + env(safe-area-inset-bottom, 0px))",
-            right: "var(--space-6)",
-            display: "flex",
-            "flex-direction": "column",
-            gap: "var(--space-2)",
-            "z-index": "11",
-          }}
-        >
-          {[
-            { label: "Create Room", screen: Screen.CreateRoom },
-            { label: "Join by Code", screen: Screen.JoinByCode },
-            { label: "Browse Public", screen: Screen.PublicRooms },
-          ].map((item) => (
-            <button
-              onClick={() => {
-                setShowFab(false);
-                navigate(item.screen);
-              }}
-              style={{
-                padding: "var(--space-3) var(--space-5)",
-                background: "var(--color-bg-secondary)",
-                color: "var(--color-text-primary)",
-                "border-radius": "var(--radius-md)",
-                "font-size": "var(--text-sm)",
-                "font-weight": "var(--font-medium)",
-                "box-shadow": "var(--shadow-md)",
-                "text-align": "right",
-                "white-space": "nowrap",
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </Show>
 
       <Toast />
     </div>

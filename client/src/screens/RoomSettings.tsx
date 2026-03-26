@@ -1,14 +1,14 @@
-import { type Component, createSignal, onMount, Show } from "solid-js";
-import { goBack, currentParams } from "../router";
-import { getRoomSettings, updateRoom, deleteRoom, regenerateInvite } from "../stores/rooms";
+import { type Component, createSignal, onMount, Show, For } from "solid-js";
+import { goBack, currentParams, navigate, Screen } from "../router";
+import { getRoomSettings, updateRoom, deleteRoom, leaveRoom, regenerateInvite } from "../stores/rooms";
+import type { RoomMember } from "../stores/rooms";
 import Button from "../components/Button";
 import Input from "../components/Input";
-import Toggle from "../components/Toggle";
 import Modal from "../components/Modal";
+import Avatar from "../components/Avatar";
+import Badge from "../components/Badge";
 import Toast, { showToast } from "../components/Toast";
-import { navigate, Screen } from "../router";
 import { user } from "../stores/auth";
-import MemberList from "../components/MemberList";
 
 const RoomSettings: Component = () => {
   const params = currentParams();
@@ -16,10 +16,9 @@ const RoomSettings: Component = () => {
 
   const [roomName, setRoomName] = createSignal("");
   const [description, setDescription] = createSignal("");
-  const [isPublic, setIsPublic] = createSignal(true);
   const [inviteCode, setInviteCode] = createSignal("");
   const [ownerId, setOwnerId] = createSignal("");
-  const [memberList, setMemberList] = createSignal<any[]>([]);
+  const [memberList, setMemberList] = createSignal<RoomMember[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [showDeleteModal, setShowDeleteModal] = createSignal(false);
   const [showLeaveModal, setShowLeaveModal] = createSignal(false);
@@ -31,7 +30,6 @@ const RoomSettings: Component = () => {
     if (result.ok && result.room) {
       setRoomName(result.room.name);
       setDescription(result.room.description ?? "");
-      setIsPublic(result.room.visibility === "public");
       setInviteCode(result.room.invite_code ?? "");
       setOwnerId(result.room.owner_id);
       setMemberList(result.room.members ?? []);
@@ -43,7 +41,6 @@ const RoomSettings: Component = () => {
     const result = await updateRoom(roomId(), {
       name: roomName(),
       description: description() || undefined,
-      visibility: isPublic() ? "public" : "private",
     });
     setLoading(false);
     if (result.ok) {
@@ -77,7 +74,6 @@ const RoomSettings: Component = () => {
   };
 
   const handleLeave = async () => {
-    const { leaveRoom } = await import("../stores/rooms");
     const result = await leaveRoom(roomId());
     if (result.ok) {
       navigate(Screen.RoomList);
@@ -110,12 +106,15 @@ const RoomSettings: Component = () => {
       </header>
 
       <div style={{ padding: "var(--space-4)", display: "flex", "flex-direction": "column", gap: "var(--space-5)" }}>
+        {/* Room name */}
         <Input
           label="Room name"
           value={roomName()}
           onInput={setRoomName}
           disabled={!isOwner() || loading()}
         />
+
+        {/* Description */}
         <div>
           <label
             style={{
@@ -131,6 +130,7 @@ const RoomSettings: Component = () => {
           <textarea
             value={description()}
             onInput={(e) => setDescription(e.currentTarget.value)}
+            autocomplete="off"
             disabled={!isOwner() || loading()}
             rows={3}
             style={{
@@ -148,64 +148,88 @@ const RoomSettings: Component = () => {
         </div>
 
         <Show when={isOwner()}>
-          <Toggle
-            label={isPublic() ? "Public" : "Private"}
-            checked={isPublic()}
-            onChange={setIsPublic}
-          />
-          <p style={{ "font-size": "var(--text-sm)", color: "var(--color-text-tertiary)" }}>
-            {isPublic()
-              ? "Anyone can find and join this room."
-              : "Changing to public makes this room discoverable by anyone."}
-          </p>
-
           <Button variant="primary" onClick={handleSave} loading={loading()} fullWidth>
             Save Changes
           </Button>
         </Show>
 
-        {/* Invite section */}
-        <Show when={!isPublic() && inviteCode()}>
-          <div>
-            <h2 style={{ "font-size": "var(--text-lg)", "font-weight": "var(--font-semibold)", "margin-bottom": "var(--space-3)" }}>
-              Invite Code
-            </h2>
-            <div
-              style={{
-                "font-family": "var(--font-mono)",
-                "font-size": "var(--text-2xl)",
-                "letter-spacing": "0.2em",
-                "text-align": "center",
-                padding: "var(--space-4)",
-                background: "var(--color-bg-tertiary)",
-                "border-radius": "var(--radius-md)",
-                "margin-bottom": "var(--space-3)",
-              }}
-            >
-              {inviteCode()}
-            </div>
-            <div style={{ display: "flex", gap: "var(--space-2)" }}>
-              <Button variant="secondary" onClick={handleCopy} fullWidth>
-                Copy Code
-              </Button>
-              <Show when={isOwner()}>
-                <Button variant="ghost" onClick={handleRegenerate} fullWidth>
-                  Regenerate
-                </Button>
-              </Show>
-            </div>
+        {/* Invite Code — always visible */}
+        <div>
+          <h2 style={{ "font-size": "var(--text-lg)", "font-weight": "var(--font-semibold)", "margin-bottom": "var(--space-3)" }}>
+            Invite Code
+          </h2>
+          <div
+            style={{
+              "font-family": "var(--font-mono)",
+              "font-size": "var(--text-2xl)",
+              "letter-spacing": "0.2em",
+              "text-align": "center",
+              padding: "var(--space-4)",
+              background: "var(--color-bg-tertiary)",
+              "border-radius": "var(--radius-md)",
+              "margin-bottom": "var(--space-3)",
+            }}
+          >
+            {inviteCode()}
           </div>
-        </Show>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <Button variant="secondary" onClick={handleCopy} fullWidth>
+              Copy Code
+            </Button>
+            <Show when={isOwner()}>
+              <Button variant="ghost" onClick={handleRegenerate} fullWidth>
+                Regenerate
+              </Button>
+            </Show>
+          </div>
+        </div>
 
         {/* Members */}
         <div>
           <h2 style={{ "font-size": "var(--text-lg)", "font-weight": "var(--font-semibold)", "margin-bottom": "var(--space-3)" }}>
-            Members ({memberList().length}/500)
+            Members ({memberList().length})
           </h2>
-          <MemberList members={memberList()} floorHolderId={undefined} />
+          <div
+            class="scrollable"
+            style={{
+              "max-height": "240px",
+              display: "flex",
+              "flex-direction": "column",
+              gap: "var(--space-3)",
+            }}
+          >
+            <For each={memberList()}>
+              {(member) => (
+                <div
+                  style={{
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "var(--space-3)",
+                  }}
+                >
+                  <Avatar name={member.display_name} size="sm" />
+                  <span
+                    style={{
+                      flex: "1",
+                      "font-size": "var(--text-base)",
+                      overflow: "hidden",
+                      "text-overflow": "ellipsis",
+                      "white-space": "nowrap",
+                    }}
+                  >
+                    {member.display_name}
+                    {member.user_id === user()?.id && " (You)"}
+                  </span>
+                  <Show when={member.role === "owner"}>
+                    <Badge text="Owner" variant="primary" />
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
         </div>
 
-        {/* Danger zone */}
+        {/* Actions */}
         <div style={{ "margin-top": "var(--space-6)", "padding-top": "var(--space-4)", "border-top": "1px solid var(--color-border-default)" }}>
           <Button variant="danger" onClick={() => setShowLeaveModal(true)} fullWidth>
             Leave Room
@@ -235,6 +259,7 @@ const RoomSettings: Component = () => {
       <Show when={showLeaveModal()}>
         <Modal
           title={`Leave ${roomName()}?`}
+          message="You can rejoin later using an invite code."
           confirmLabel="Leave"
           onConfirm={handleLeave}
           onCancel={() => setShowLeaveModal(false)}
