@@ -78,11 +78,8 @@ impl PlaybackHandle {
         // Decode Opus payload to PCM.
         let mut decoder = DECODER.lock().map_err(|e| e.to_string())?;
         let decoder = decoder.get_or_insert_with(|| {
-            audiopus::coder::Decoder::new(
-                audiopus::SampleRate::Hz16000,
-                audiopus::Channels::Mono,
-            )
-            .expect("Failed to create Opus decoder")
+            audiopus::coder::Decoder::new(audiopus::SampleRate::Hz16000, audiopus::Channels::Mono)
+                .expect("Failed to create Opus decoder")
         });
 
         let mut pcm = vec![0i16; FRAME_SAMPLES];

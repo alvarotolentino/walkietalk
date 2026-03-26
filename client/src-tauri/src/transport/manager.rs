@@ -1,13 +1,13 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
-use tauri::{AppHandle, Emitter, Manager};
 
 use super::ws::{connect_ws, WsWriteTx};
-use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 use crate::state::AppState;
+use walkietalk_shared::messages::{ClientMessage, ServerMessage};
 
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 const HEARTBEAT_TIMEOUT_SECS: u64 = 90; // 3 missed heartbeats
@@ -56,10 +56,14 @@ impl TransportManager {
                 // Stop audio pipelines when connection drops
                 Self::stop_audio(&app).await;
                 if !shutdown_flag.load(Ordering::Relaxed) {
-                    let _ = app.emit("connection_state", serde_json::json!({
-                        "state": "disconnected",
-                        "will_reconnect": true,
-                    }).to_string());
+                    let _ = app.emit(
+                        "connection_state",
+                        serde_json::json!({
+                            "state": "disconnected",
+                            "will_reconnect": true,
+                        })
+                        .to_string(),
+                    );
                 }
                 let _ = drop_tx.send(());
             })
@@ -101,7 +105,9 @@ impl TransportManager {
 
     /// Send a text (JSON control) message over the WebSocket.
     pub async fn send_text(&self, text: &str) -> Result<(), String> {
-        self.shared_write_tx.lock().await
+        self.shared_write_tx
+            .lock()
+            .await
             .send(WsMessage::Text(text.into()))
             .await
             .map_err(|_| "Transport closed".to_string())
@@ -109,7 +115,9 @@ impl TransportManager {
 
     /// Send a binary (audio) frame over the WebSocket.
     pub async fn send_binary(&self, data: Vec<u8>) -> Result<(), String> {
-        self.shared_write_tx.lock().await
+        self.shared_write_tx
+            .lock()
+            .await
             .send(WsMessage::Binary(data.into()))
             .await
             .map_err(|_| "Transport closed".to_string())
@@ -163,7 +171,8 @@ impl TransportManager {
         shutdown_flag: &AtomicBool,
         app: &AppHandle,
     ) {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
         loop {
             interval.tick().await;
             if shutdown_flag.load(Ordering::Relaxed) {
@@ -174,10 +183,14 @@ impl TransportManager {
             let last = last_ack.load(Ordering::Relaxed);
             if now_secs() - last > HEARTBEAT_TIMEOUT_SECS {
                 tracing::warn!("Heartbeat timeout — no ACK in {HEARTBEAT_TIMEOUT_SECS}s");
-                let _ = app.emit("connection_state", serde_json::json!({
-                    "state": "disconnected",
-                    "will_reconnect": true,
-                }).to_string());
+                let _ = app.emit(
+                    "connection_state",
+                    serde_json::json!({
+                        "state": "disconnected",
+                        "will_reconnect": true,
+                    })
+                    .to_string(),
+                );
                 break; // Will trigger reconnect via write_tx drop
             }
 
@@ -210,16 +223,26 @@ impl TransportManager {
             }
             if attempt >= MAX_RECONNECT_ATTEMPTS {
                 tracing::error!("Max reconnect attempts ({MAX_RECONNECT_ATTEMPTS}) reached");
-                let _ = app.emit("connection_state", serde_json::json!({
-                    "state": "failed",
-                    "will_reconnect": false,
-                }).to_string());
+                let _ = app.emit(
+                    "connection_state",
+                    serde_json::json!({
+                        "state": "failed",
+                        "will_reconnect": false,
+                    })
+                    .to_string(),
+                );
                 return;
             }
 
             let delay = backoff_delay(attempt);
-            tracing::info!("Reconnect attempt {}/{MAX_RECONNECT_ATTEMPTS} in {delay}ms", attempt + 1);
-            let _ = app.emit("reconnecting", serde_json::json!({ "attempt": attempt + 1 }).to_string());
+            tracing::info!(
+                "Reconnect attempt {}/{MAX_RECONNECT_ATTEMPTS} in {delay}ms",
+                attempt + 1
+            );
+            let _ = app.emit(
+                "reconnecting",
+                serde_json::json!({ "attempt": attempt + 1 }).to_string(),
+            );
 
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
 
@@ -259,10 +282,14 @@ impl TransportManager {
                     }
 
                     tracing::warn!("Connection lost after reconnect, retrying...");
-                    let _ = app.emit("connection_state", serde_json::json!({
-                        "state": "disconnected",
-                        "will_reconnect": true,
-                    }).to_string());
+                    let _ = app.emit(
+                        "connection_state",
+                        serde_json::json!({
+                            "state": "disconnected",
+                            "will_reconnect": true,
+                        })
+                        .to_string(),
+                    );
                     // Reset attempt counter since we had a successful connection
                 }
                 Err(e) => {
@@ -300,7 +327,10 @@ impl TransportManager {
         let msg: ServerMessage = match serde_json::from_value(value.clone()) {
             Ok(m) => m,
             Err(e) => {
-                tracing::warn!("Unknown server message (dropped): {e} — raw: {}", &text[..text.len().min(200)]);
+                tracing::warn!(
+                    "Unknown server message (dropped): {e} — raw: {}",
+                    &text[..text.len().min(200)]
+                );
                 return;
             }
         };

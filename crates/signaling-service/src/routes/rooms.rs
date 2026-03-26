@@ -12,8 +12,8 @@ use walkietalk_shared::extractors::AuthUser;
 use walkietalk_shared::ids::RoomId;
 
 use crate::models::room::{
-    CreateRoomRequest, InviteCodeResponse, JoinRoomRequest, RoomDetailMember,
-    RoomDetailResponse, RoomResponse, UpdateRoomRequest, get_room_member_info,
+    get_room_member_info, CreateRoomRequest, InviteCodeResponse, JoinRoomRequest, RoomDetailMember,
+    RoomDetailResponse, RoomResponse, UpdateRoomRequest,
 };
 use crate::state::AppState;
 use crate::utils::{generate_invite_code, generate_slug};
@@ -54,7 +54,9 @@ pub async fn create_room(
         }
         attempts += 1;
         if attempts >= 5 {
-            return Err(AppError::Internal("failed to generate a unique invite code".into()));
+            return Err(AppError::Internal(
+                "failed to generate a unique invite code".into(),
+            ));
         }
         code = generate_invite_code();
     }
@@ -114,7 +116,11 @@ pub async fn get_room(
         .map(|m| RoomDetailMember {
             user_id: m.user_id.0,
             display_name: m.display_name,
-            role: if m.user_id.0 == room.owner_id { "owner" } else { "member" },
+            role: if m.user_id.0 == room.owner_id {
+                "owner"
+            } else {
+                "member"
+            },
         })
         .collect();
 
@@ -151,7 +157,9 @@ pub async fn update_room(
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id != auth.user_id.0 {
-        return Err(AppError::Forbidden("only the owner can update the room".into()));
+        return Err(AppError::Forbidden(
+            "only the owner can update the room".into(),
+        ));
     }
 
     let name = req.name.as_deref().unwrap_or(&room.name);
@@ -189,7 +197,9 @@ pub async fn delete_room(
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id != auth.user_id.0 {
-        return Err(AppError::Forbidden("only the owner can delete the room".into()));
+        return Err(AppError::Forbidden(
+            "only the owner can delete the room".into(),
+        ));
     }
 
     db::delete_room(conn, &room).await?;
@@ -294,20 +304,25 @@ pub async fn generate_invite(
         .ok_or_else(|| AppError::NotFound("room not found".into()))?;
 
     if room.owner_id != auth.user_id.0 {
-        return Err(AppError::Forbidden("only the owner can generate invite codes".into()));
+        return Err(AppError::Forbidden(
+            "only the owner can generate invite codes".into(),
+        ));
     }
 
     // Retry on collision (up to 5 attempts) to guarantee uniqueness.
     let mut code = generate_invite_code();
     let mut attempts = 0u8;
     loop {
-        let was_set = db::set_room_invite_code(conn, room_id, room.invite_code.as_deref(), &code).await?;
+        let was_set =
+            db::set_room_invite_code(conn, room_id, room.invite_code.as_deref(), &code).await?;
         if was_set {
             break;
         }
         attempts += 1;
         if attempts >= 5 {
-            return Err(AppError::Internal("failed to generate a unique invite code".into()));
+            return Err(AppError::Internal(
+                "failed to generate a unique invite code".into(),
+            ));
         }
         code = generate_invite_code();
     }

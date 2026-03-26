@@ -81,11 +81,9 @@ pub struct AudioReceiver {
 
 impl AudioReceiver {
     pub fn new() -> Self {
-        let decoder = audiopus::coder::Decoder::new(
-            audiopus::SampleRate::Hz16000,
-            audiopus::Channels::Mono,
-        )
-        .expect("Failed to create Opus decoder");
+        let decoder =
+            audiopus::coder::Decoder::new(audiopus::SampleRate::Hz16000, audiopus::Channels::Mono)
+                .expect("Failed to create Opus decoder");
 
         Self {
             decoder: StdMutex::new(decoder),
@@ -295,7 +293,11 @@ impl AudioEngine {
                     }
 
                     while mono_out.len() < output_mono_samples {
-                        let frame = buf_reader.buffer.lock().unwrap().pop()
+                        let frame = buf_reader
+                            .buffer
+                            .lock()
+                            .unwrap()
+                            .pop()
                             .unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
 
                         if last_level_emit.elapsed() >= LEVEL_EMIT_INTERVAL {

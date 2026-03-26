@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{register_user, login_user, unique_suffix, TestDb, start_auth_server};
+use common::{login_user, register_user, start_auth_server, unique_suffix, TestDb};
 
 // ---------------------------------------------------------------------------
 // Auth: Register
@@ -15,8 +15,13 @@ async fn register_and_login_happy_path() {
     let s = unique_suffix();
 
     // Register
-    let (token, refresh, user_id) =
-        register_user(&base, &format!("alice_{s}"), &format!("alice_{s}@test.io"), "password123").await;
+    let (token, refresh, user_id) = register_user(
+        &base,
+        &format!("alice_{s}"),
+        &format!("alice_{s}@test.io"),
+        "password123",
+    )
+    .await;
     assert!(!token.is_empty());
     assert!(!refresh.is_empty());
 
@@ -48,7 +53,13 @@ async fn register_duplicate_username_fails() {
     let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    register_user(&base, &format!("dup_{s}"), &format!("dup1_{s}@test.io"), "password123").await;
+    register_user(
+        &base,
+        &format!("dup_{s}"),
+        &format!("dup1_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     // Second registration with same username should fail
     let client = reqwest::Client::new();
@@ -64,7 +75,11 @@ async fn register_duplicate_username_fails() {
         .await
         .expect("register dup request");
 
-    assert_eq!(res.status(), 409, "expected conflict for duplicate username");
+    assert_eq!(
+        res.status(),
+        409,
+        "expected conflict for duplicate username"
+    );
 }
 
 #[tokio::test]
@@ -73,7 +88,13 @@ async fn register_duplicate_email_fails() {
     let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    register_user(&base, &format!("orig_{s}"), &format!("same_{s}@test.io"), "password123").await;
+    register_user(
+        &base,
+        &format!("orig_{s}"),
+        &format!("same_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     let client = reqwest::Client::new();
     let res = client
@@ -97,7 +118,13 @@ async fn login_wrong_password() {
     let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    register_user(&base, &format!("bob_{s}"), &format!("bob_{s}@test.io"), "correctpass").await;
+    register_user(
+        &base,
+        &format!("bob_{s}"),
+        &format!("bob_{s}@test.io"),
+        "correctpass",
+    )
+    .await;
 
     let client = reqwest::Client::new();
     let res = client
@@ -142,8 +169,13 @@ async fn refresh_token_happy_path() {
     let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (_token, refresh, _uid) =
-        register_user(&base, &format!("ref_{s}"), &format!("ref_{s}@test.io"), "password123").await;
+    let (_token, refresh, _uid) = register_user(
+        &base,
+        &format!("ref_{s}"),
+        &format!("ref_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     let client = reqwest::Client::new();
     let res = client
@@ -187,8 +219,13 @@ async fn logout_revokes_refresh_token() {
     let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (token, refresh, _uid) =
-        register_user(&base, &format!("out_{s}"), &format!("out_{s}@test.io"), "password123").await;
+    let (token, refresh, _uid) = register_user(
+        &base,
+        &format!("out_{s}"),
+        &format!("out_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     let client = reqwest::Client::new();
 
@@ -243,8 +280,13 @@ async fn device_crud() {
     let base = start_auth_server(db.redis.clone()).await;
     let s = unique_suffix();
 
-    let (token, _refresh, _uid) =
-        register_user(&base, &format!("dev_{s}"), &format!("dev_{s}@test.io"), "password123").await;
+    let (token, _refresh, _uid) = register_user(
+        &base,
+        &format!("dev_{s}"),
+        &format!("dev_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     let client = reqwest::Client::new();
 

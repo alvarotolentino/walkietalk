@@ -14,8 +14,8 @@ use walkietalk_shared::extractors::AuthUser;
 use walkietalk_shared::ids::UserId;
 
 use crate::models::{
-    AuthResponse, LoginRequest, LogoutRequest, RefreshRequest,
-    RegisterRequest, TokenResponse, UserResponse,
+    AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, TokenResponse,
+    UserResponse,
 };
 use crate::state::AppState;
 

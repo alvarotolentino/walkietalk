@@ -22,6 +22,9 @@ pub fn auth_router() -> Router<Arc<AppState>> {
 pub fn users_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/me", get(users::get_me))
-        .route("/me/devices", get(users::list_devices).post(users::create_device))
+        .route(
+            "/me/devices",
+            get(users::list_devices).post(users::create_device),
+        )
         .route("/me/devices/:id", delete(users::delete_device))
 }

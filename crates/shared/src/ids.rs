@@ -17,7 +17,6 @@ pub struct RoomId(pub Uuid);
 #[serde(transparent)]
 pub struct DeviceId(pub Uuid);
 
-
 impl fmt::Display for UserId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)

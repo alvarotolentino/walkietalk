@@ -56,7 +56,10 @@ impl TestDb {
                 "Ready to accept connections",
             ));
 
-        let container = image.start().await.expect("failed to start redis container");
+        let container = image
+            .start()
+            .await
+            .expect("failed to start redis container");
 
         let host_port = container
             .get_host_port_ipv4(6379)
@@ -103,7 +106,9 @@ pub async fn start_auth_server(redis: RedisConn) -> String {
 
     let app = walkietalk_auth::build_app(state);
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind auth listener");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind auth listener");
     let addr = listener.local_addr().expect("auth local addr");
 
     tokio::spawn(async move {
@@ -130,11 +135,15 @@ pub async fn start_signaling_server(redis: RedisConn) -> String {
 
     let app = walkietalk_signaling::build_app(state);
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind signaling listener");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind signaling listener");
     let addr = listener.local_addr().expect("signaling local addr");
 
     tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("signaling server error");
+        axum::serve(listener, app)
+            .await
+            .expect("signaling server error");
     });
 
     format!("127.0.0.1:{}", addr.port())
@@ -167,9 +176,19 @@ pub async fn register_user(
 
     assert_eq!(res.status(), 201, "register failed: {:?}", res.text().await);
     let body: serde_json::Value = res.json().await.expect("parse register body");
-    let access_token = body["access_token"].as_str().expect("access_token").to_string();
-    let refresh_token = body["refresh_token"].as_str().expect("refresh_token").to_string();
-    let user_id: Uuid = body["user"]["id"].as_str().expect("user.id").parse().expect("parse uuid");
+    let access_token = body["access_token"]
+        .as_str()
+        .expect("access_token")
+        .to_string();
+    let refresh_token = body["refresh_token"]
+        .as_str()
+        .expect("refresh_token")
+        .to_string();
+    let user_id: Uuid = body["user"]["id"]
+        .as_str()
+        .expect("user.id")
+        .parse()
+        .expect("parse uuid");
     (access_token, refresh_token, user_id)
 }
 
@@ -187,10 +206,20 @@ pub async fn login_user(auth_base: &str, email: &str, password: &str) -> (String
         .await
         .expect("login request");
 
-    assert!(res.status().is_success(), "login failed: {:?}", res.text().await);
+    assert!(
+        res.status().is_success(),
+        "login failed: {:?}",
+        res.text().await
+    );
     let body: serde_json::Value = res.json().await.expect("parse login body");
-    let access_token = body["access_token"].as_str().expect("access_token").to_string();
-    let refresh_token = body["refresh_token"].as_str().expect("refresh_token").to_string();
+    let access_token = body["access_token"]
+        .as_str()
+        .expect("access_token")
+        .to_string();
+    let refresh_token = body["refresh_token"]
+        .as_str()
+        .expect("refresh_token")
+        .to_string();
     (access_token, refresh_token)
 }
 
@@ -217,7 +246,12 @@ pub async fn create_room(
         .await
         .expect("create room request");
 
-    assert_eq!(res.status(), 201, "create room failed: {:?}", res.text().await);
+    assert_eq!(
+        res.status(),
+        201,
+        "create room failed: {:?}",
+        res.text().await
+    );
     res.json().await.expect("parse room body")
 }
 
@@ -232,7 +266,11 @@ pub async fn join_room(sig_base: &str, token: &str, room_id: &str) {
         .await
         .expect("join room request");
 
-    assert!(res.status().is_success(), "join room failed: {:?}", res.text().await);
+    assert!(
+        res.status().is_success(),
+        "join room failed: {:?}",
+        res.text().await
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -265,9 +303,8 @@ pub async fn ws_recv(ws: &mut WsStream) -> ServerMessage {
 
         match msg {
             Message::Text(text) => {
-                return serde_json::from_str(&text).unwrap_or_else(|e| {
-                    panic!("failed to parse ServerMessage: {e}\nraw: {text}")
-                });
+                return serde_json::from_str(&text)
+                    .unwrap_or_else(|e| panic!("failed to parse ServerMessage: {e}\nraw: {text}"));
             }
             Message::Ping(_) | Message::Pong(_) => continue,
             other => panic!("unexpected ws message type: {other:?}"),

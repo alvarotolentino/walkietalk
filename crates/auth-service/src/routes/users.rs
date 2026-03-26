@@ -61,7 +61,9 @@ pub async fn list_devices(
 ) -> Result<Json<Vec<DeviceResponse>>, AppError> {
     let devices = db::list_devices(&mut state.redis.clone(), auth.user_id.0).await?;
 
-    Ok(Json(devices.into_iter().map(DeviceResponse::from).collect()))
+    Ok(Json(
+        devices.into_iter().map(DeviceResponse::from).collect(),
+    ))
 }
 
 // ---------------------------------------------------------------------------

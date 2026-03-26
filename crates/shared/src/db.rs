@@ -78,7 +78,10 @@ fn req_field<'a>(
         .ok_or_else(|| AppError::Internal(format!("missing field: {key}")))
 }
 
-fn uuid_field(map: &std::collections::HashMap<String, String>, key: &str) -> Result<Uuid, AppError> {
+fn uuid_field(
+    map: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> Result<Uuid, AppError> {
     let s = req_field(map, key)?;
     s.parse::<Uuid>()
         .map_err(|e| AppError::Internal(format!("uuid parse ({key}): {e}")))
@@ -138,16 +141,29 @@ pub async fn create_user(
         .atomic()
         .cmd("HSET")
         .arg(&key)
-        .arg("username").arg(username)
-        .arg("email").arg(email)
-        .arg("password_hash").arg(password_hash)
-        .arg("display_name").arg(display_name)
-        .arg("avatar_url").arg("")
-        .arg("created_at").arg(&now_str)
-        .arg("updated_at").arg(&now_str)
+        .arg("username")
+        .arg(username)
+        .arg("email")
+        .arg(email)
+        .arg("password_hash")
+        .arg(password_hash)
+        .arg("display_name")
+        .arg(display_name)
+        .arg("avatar_url")
+        .arg("")
+        .arg("created_at")
+        .arg(&now_str)
+        .arg("updated_at")
+        .arg(&now_str)
         .ignore()
-        .cmd("SET").arg(format!("user:email:{email}")).arg(id.to_string()).ignore()
-        .cmd("SET").arg(format!("user:username:{username}")).arg(id.to_string()).ignore()
+        .cmd("SET")
+        .arg(format!("user:email:{email}"))
+        .arg(id.to_string())
+        .ignore()
+        .cmd("SET")
+        .arg(format!("user:username:{username}"))
+        .arg(id.to_string())
+        .ignore()
         .exec_async(conn)
         .await
         .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
@@ -166,10 +182,10 @@ pub async fn create_user(
 
 /// Get a user by ID.
 pub async fn get_user(conn: &mut RedisConn, id: Uuid) -> Result<Option<UserRecord>, AppError> {
-    let map: std::collections::HashMap<String, String> = conn
-        .hgetall(format!("user:{id}"))
-        .await
-        .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
+    let map: std::collections::HashMap<String, String> =
+        conn.hgetall(format!("user:{id}"))
+            .await
+            .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
     if map.is_empty() {
         return Ok(None);
     }
@@ -248,14 +264,23 @@ pub async fn create_device(
         .atomic()
         .cmd("HSET")
         .arg(&key)
-        .arg("user_id").arg(user_id.to_string())
-        .arg("name").arg(name)
-        .arg("platform").arg(platform)
-        .arg("push_token").arg("")
-        .arg("last_seen").arg("")
-        .arg("created_at").arg(&now_str)
+        .arg("user_id")
+        .arg(user_id.to_string())
+        .arg("name")
+        .arg(name)
+        .arg("platform")
+        .arg(platform)
+        .arg("push_token")
+        .arg("")
+        .arg("last_seen")
+        .arg("")
+        .arg("created_at")
+        .arg(&now_str)
         .ignore()
-        .cmd("SADD").arg(format!("user:{user_id}:devices")).arg(id.to_string()).ignore()
+        .cmd("SADD")
+        .arg(format!("user:{user_id}:devices"))
+        .arg(id.to_string())
+        .ignore()
         .exec_async(conn)
         .await
         .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
@@ -326,8 +351,13 @@ pub async fn delete_device(
 
     redis::pipe()
         .atomic()
-        .cmd("DEL").arg(format!("device:{device_id}")).ignore()
-        .cmd("SREM").arg(format!("user:{user_id}:devices")).arg(device_id.to_string()).ignore()
+        .cmd("DEL")
+        .arg(format!("device:{device_id}"))
+        .ignore()
+        .cmd("SREM")
+        .arg(format!("user:{user_id}:devices"))
+        .arg(device_id.to_string())
+        .ignore()
         .exec_async(conn)
         .await
         .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
@@ -363,13 +393,23 @@ pub async fn create_refresh_token(
         .atomic()
         .cmd("HSET")
         .arg(&key)
-        .arg("id").arg(id.to_string())
-        .arg("user_id").arg(user_id.to_string())
-        .arg("device_id").arg(&device_str)
-        .arg("revoked").arg("false")
+        .arg("id")
+        .arg(id.to_string())
+        .arg("user_id")
+        .arg(user_id.to_string())
+        .arg("device_id")
+        .arg(&device_str)
+        .arg("revoked")
+        .arg("false")
         .ignore()
-        .cmd("EXPIRE").arg(&key).arg(ttl_secs).ignore()
-        .cmd("SADD").arg(format!("user:{user_id}:refresh_tokens")).arg(token_hash).ignore()
+        .cmd("EXPIRE")
+        .arg(&key)
+        .arg(ttl_secs)
+        .ignore()
+        .cmd("SADD")
+        .arg(format!("user:{user_id}:refresh_tokens"))
+        .arg(token_hash)
+        .ignore()
         .exec_async(conn)
         .await
         .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
@@ -408,10 +448,7 @@ pub async fn get_refresh_token(
 }
 
 /// Revoke a single refresh token.
-pub async fn revoke_refresh_token(
-    conn: &mut RedisConn,
-    token_hash: &str,
-) -> Result<(), AppError> {
+pub async fn revoke_refresh_token(conn: &mut RedisConn, token_hash: &str) -> Result<(), AppError> {
     let _: () = conn
         .hset(format!("refresh:{token_hash}"), "revoked", "true")
         .await
@@ -480,16 +517,27 @@ pub async fn create_room(
     pipe.atomic()
         .cmd("HSET")
         .arg(&key)
-        .arg("slug").arg(slug)
-        .arg("name").arg(name)
-        .arg("description").arg(desc)
-        .arg("owner_id").arg(owner_id.to_string())
-        .arg("invite_code").arg("")
-        .arg("lock_key").arg(lock_key)
-        .arg("created_at").arg(&now_str)
-        .arg("updated_at").arg(&now_str)
+        .arg("slug")
+        .arg(slug)
+        .arg("name")
+        .arg(name)
+        .arg("description")
+        .arg(desc)
+        .arg("owner_id")
+        .arg(owner_id.to_string())
+        .arg("invite_code")
+        .arg("")
+        .arg("lock_key")
+        .arg(lock_key)
+        .arg("created_at")
+        .arg(&now_str)
+        .arg("updated_at")
+        .arg(&now_str)
         .ignore()
-        .cmd("SET").arg(format!("room:slug:{slug}")).arg(id.to_string()).ignore();
+        .cmd("SET")
+        .arg(format!("room:slug:{slug}"))
+        .arg(id.to_string())
+        .ignore();
 
     pipe.exec_async(conn)
         .await
@@ -510,10 +558,10 @@ pub async fn create_room(
 
 /// Get a room by ID.
 pub async fn get_room(conn: &mut RedisConn, id: Uuid) -> Result<Option<RoomRecord>, AppError> {
-    let map: std::collections::HashMap<String, String> = conn
-        .hgetall(format!("room:{id}"))
-        .await
-        .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
+    let map: std::collections::HashMap<String, String> =
+        conn.hgetall(format!("room:{id}"))
+            .await
+            .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;
     if map.is_empty() {
         return Ok(None);
     }
@@ -553,9 +601,12 @@ pub async fn update_room(
     pipe.atomic()
         .cmd("HSET")
         .arg(&key)
-        .arg("name").arg(name)
-        .arg("description").arg(description.unwrap_or(""))
-        .arg("updated_at").arg(&now_str)
+        .arg("name")
+        .arg(name)
+        .arg("description")
+        .arg(description.unwrap_or(""))
+        .arg("updated_at")
+        .arg(&now_str)
         .ignore();
 
     pipe.exec_async(conn)
@@ -588,20 +639,22 @@ pub async fn delete_room(conn: &mut RedisConn, room: &RoomRecord) -> Result<(), 
     }
 
     // Remove the room itself and all indexes
-    pipe.cmd("DEL").arg(format!("room:{}", room.id)).ignore()
-        .cmd("DEL").arg(format!("room:{}:members", room.id)).ignore()
-        .cmd("DEL").arg(format!("room:slug:{}", room.slug)).ignore();
+    pipe.cmd("DEL")
+        .arg(format!("room:{}", room.id))
+        .ignore()
+        .cmd("DEL")
+        .arg(format!("room:{}:members", room.id))
+        .ignore()
+        .cmd("DEL")
+        .arg(format!("room:slug:{}", room.slug))
+        .ignore();
 
     if let Some(ref code) = room.invite_code {
-        pipe.cmd("DEL")
-            .arg(format!("room:invite:{code}"))
-            .ignore();
+        pipe.cmd("DEL").arg(format!("room:invite:{code}")).ignore();
     }
 
     // Remove floor lock if held
-    pipe.cmd("DEL")
-        .arg(format!("floor:{}", room.id))
-        .ignore();
+    pipe.cmd("DEL").arg(format!("floor:{}", room.id)).ignore();
 
     pipe.exec_async(conn)
         .await
@@ -643,8 +696,10 @@ pub async fn set_room_invite_code(
 
     pipe.cmd("HSET")
         .arg(format!("room:{room_id}"))
-        .arg("invite_code").arg(new_code)
-        .arg("updated_at").arg(ts_to_string(&Utc::now()))
+        .arg("invite_code")
+        .arg(new_code)
+        .arg("updated_at")
+        .arg(ts_to_string(&Utc::now()))
         .ignore();
 
     pipe.exec_async(conn)
@@ -675,7 +730,10 @@ pub async fn get_room_id_by_invite_code(
 }
 
 /// Get the lock_key for a room.
-pub async fn get_room_lock_key(conn: &mut RedisConn, room_id: Uuid) -> Result<Option<i64>, AppError> {
+pub async fn get_room_lock_key(
+    conn: &mut RedisConn,
+    room_id: Uuid,
+) -> Result<Option<i64>, AppError> {
     let val: Option<String> = conn
         .hget(format!("room:{room_id}"), "lock_key")
         .await
@@ -705,12 +763,20 @@ pub async fn add_room_member(
     let now_str = ts_to_string(&Utc::now());
     redis::pipe()
         .atomic()
-        .cmd("SADD").arg(format!("room:{room_id}:members")).arg(user_id.to_string()).ignore()
-        .cmd("SADD").arg(format!("user:{user_id}:rooms")).arg(room_id.to_string()).ignore()
+        .cmd("SADD")
+        .arg(format!("room:{room_id}:members"))
+        .arg(user_id.to_string())
+        .ignore()
+        .cmd("SADD")
+        .arg(format!("user:{user_id}:rooms"))
+        .arg(room_id.to_string())
+        .ignore()
         .cmd("HSET")
         .arg(format!("room:{room_id}:member:{user_id}"))
-        .arg("role").arg(role)
-        .arg("joined_at").arg(&now_str)
+        .arg("role")
+        .arg(role)
+        .arg("joined_at")
+        .arg(&now_str)
         .ignore()
         .exec_async(conn)
         .await
@@ -755,8 +821,13 @@ pub async fn remove_room_member(
     }
     redis::pipe()
         .atomic()
-        .cmd("SREM").arg(format!("user:{user_id}:rooms")).arg(room_id.to_string()).ignore()
-        .cmd("DEL").arg(format!("room:{room_id}:member:{user_id}")).ignore()
+        .cmd("SREM")
+        .arg(format!("user:{user_id}:rooms"))
+        .arg(room_id.to_string())
+        .ignore()
+        .cmd("DEL")
+        .arg(format!("room:{room_id}:member:{user_id}"))
+        .ignore()
         .exec_async(conn)
         .await
         .map_err(|e| AppError::Internal(format!("redis error: {e}")))?;

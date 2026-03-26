@@ -2,9 +2,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{
-    connect_async,
-    tungstenite::Message as WsMessage,
-    MaybeTlsStream, WebSocketStream,
+    connect_async, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream,
 };
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;

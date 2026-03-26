@@ -18,8 +18,11 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,walkietalk_signaling=debug".parse().expect("valid filter")),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "info,walkietalk_signaling=debug"
+                    .parse()
+                    .expect("valid filter")
+            }),
         )
         .init();
 
@@ -74,8 +77,7 @@ async fn main() {
         metrics: Arc::new(Metrics::new()),
     });
 
-    let app = walkietalk_signaling::build_app(state)
-        .layer(TraceLayer::new_for_http());
+    let app = walkietalk_signaling::build_app(state).layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await
@@ -83,7 +85,5 @@ async fn main() {
 
     tracing::info!("signaling service listening on {}", config.listen_addr);
 
-    axum::serve(listener, app)
-        .await
-        .expect("server error");
+    axum::serve(listener, app).await.expect("server error");
 }

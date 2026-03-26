@@ -190,14 +190,8 @@ pub async fn get_current_user(
 
 fn persist_auth(app: &AppHandle, tokens: &TokenPair, user: &UserInfo) {
     if let Ok(store) = app.store("auth.json") {
-        let _ = store.set(
-            "tokens",
-            serde_json::to_value(tokens).unwrap_or_default(),
-        );
-        let _ = store.set(
-            "user",
-            serde_json::to_value(user).unwrap_or_default(),
-        );
+        let _ = store.set("tokens", serde_json::to_value(tokens).unwrap_or_default());
+        let _ = store.set("user", serde_json::to_value(user).unwrap_or_default());
         let _ = store.save();
     }
 }

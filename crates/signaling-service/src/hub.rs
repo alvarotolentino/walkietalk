@@ -39,9 +39,9 @@ impl WsHub {
 
     /// Check if a user has a local connection in a given room.
     pub fn has_local_client(&self, room_id: &RoomId, user_id: &UserId) -> bool {
-        self.rooms.get(room_id).is_some_and(|clients| {
-            clients.iter().any(|c| c.user_id == *user_id)
-        })
+        self.rooms
+            .get(room_id)
+            .is_some_and(|clients| clients.iter().any(|c| c.user_id == *user_id))
     }
 
     /// Remove a specific client from a room. Returns true if found.
@@ -99,12 +99,7 @@ impl WsHub {
     }
 
     /// Broadcast raw binary data to all clients in a room except one (for audio relay).
-    pub fn broadcast_binary_to_room_except(
-        &self,
-        room_id: &RoomId,
-        exclude: &UserId,
-        data: &[u8],
-    ) {
+    pub fn broadcast_binary_to_room_except(&self, room_id: &RoomId, exclude: &UserId, data: &[u8]) {
         if let Some(clients) = self.rooms.get(room_id) {
             for client in clients.iter() {
                 if client.user_id != *exclude {
@@ -113,7 +108,6 @@ impl WsHub {
             }
         }
     }
-
 }
 
 impl Default for WsHub {

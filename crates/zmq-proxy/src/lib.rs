@@ -17,7 +17,10 @@ pub struct Stats {
 ///
 /// Adapted from the spec's XSUB/XPUB pattern because the `zeromq` crate
 /// does not implement XSubSocket.
-pub async fn run_proxy(pull_addr: &str, pub_addr: &str) -> Result<Arc<Stats>, Box<dyn std::error::Error>> {
+pub async fn run_proxy(
+    pull_addr: &str,
+    pub_addr: &str,
+) -> Result<Arc<Stats>, Box<dyn std::error::Error>> {
     let mut pull = PullSocket::new();
     pull.bind(pull_addr).await?;
     tracing::info!("PULL bound on {pull_addr} (publishers connect here)");

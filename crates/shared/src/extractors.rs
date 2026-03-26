@@ -60,9 +60,6 @@ where
             .transpose()
             .map_err(|_| AppError::Unauthorized("invalid device id in token".into()))?;
 
-        Ok(AuthUser {
-            user_id,
-            device_id,
-        })
+        Ok(AuthUser { user_id, device_id })
     }
 }

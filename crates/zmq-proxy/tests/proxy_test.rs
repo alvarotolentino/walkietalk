@@ -136,9 +136,16 @@ async fn test_proxy_topic_filtering() {
         .expect("SUB recv");
 
     let frame = received.into_vec().pop().expect("at least one frame");
-    assert!(frame.starts_with(b"ctrl."), "expected ctrl topic, got: {:?}", frame);
+    assert!(
+        frame.starts_with(b"ctrl."),
+        "expected ctrl topic, got: {:?}",
+        frame
+    );
 
     // Verify the audio message does NOT arrive (short timeout)
     let no_msg = tokio::time::timeout(Duration::from_millis(500), sub.recv()).await;
-    assert!(no_msg.is_err(), "audio message should not arrive on ctrl-only subscriber");
+    assert!(
+        no_msg.is_err(),
+        "audio message should not arrive on ctrl-only subscriber"
+    );
 }

@@ -57,10 +57,7 @@ pub async fn create_room(
 }
 
 #[tauri::command]
-pub async fn join_by_code(
-    code: String,
-    state: State<'_, AppState>,
-) -> Result<Room, String> {
+pub async fn join_by_code(code: String, state: State<'_, AppState>) -> Result<Room, String> {
     let http = HttpClient::new();
     let req = http
         .sig_post(&state, "/rooms/join")
@@ -70,10 +67,7 @@ pub async fn join_by_code(
 }
 
 #[tauri::command]
-pub async fn leave_room(
-    room_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn leave_room(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}/leave");
     let req = http.sig_post(&state, &path).await?;
@@ -100,21 +94,15 @@ pub async fn update_room(
 ) -> Result<(), String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}");
-    let req = http
-        .sig_put(&state, &path)
-        .await?
-        .json(&serde_json::json!({
-            "name": name,
-            "description": description,
-        }));
+    let req = http.sig_put(&state, &path).await?.json(&serde_json::json!({
+        "name": name,
+        "description": description,
+    }));
     http.send_empty(req).await
 }
 
 #[tauri::command]
-pub async fn delete_room(
-    room_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn delete_room(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let http = HttpClient::new();
     let path = format!("/rooms/{room_id}");
     let req = http.sig_delete(&state, &path).await?;

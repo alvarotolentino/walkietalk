@@ -5,12 +5,8 @@ use walkietalk_shared::ids::RoomId;
 use walkietalk_shared::messages::ClientMessage;
 
 #[tauri::command]
-pub async fn request_floor(
-    room_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let room_uuid = uuid::Uuid::parse_str(&room_id)
-        .map_err(|_| "Invalid room ID".to_string())?;
+pub async fn request_floor(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let room_uuid = uuid::Uuid::parse_str(&room_id).map_err(|_| "Invalid room ID".to_string())?;
 
     let transport = state.transport.lock().await;
     let t = transport.as_ref().ok_or("Not connected")?;
@@ -23,12 +19,8 @@ pub async fn request_floor(
 }
 
 #[tauri::command]
-pub async fn release_floor(
-    room_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let room_uuid = uuid::Uuid::parse_str(&room_id)
-        .map_err(|_| "Invalid room ID".to_string())?;
+pub async fn release_floor(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let room_uuid = uuid::Uuid::parse_str(&room_id).map_err(|_| "Invalid room ID".to_string())?;
 
     let transport = state.transport.lock().await;
     let t = transport.as_ref().ok_or("Not connected")?;

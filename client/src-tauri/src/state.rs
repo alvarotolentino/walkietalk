@@ -52,7 +52,11 @@ impl AppState {
 
     /// Get the current access token, if any.
     pub async fn access_token(&self) -> Option<String> {
-        self.tokens.read().await.as_ref().map(|t| t.access_token.clone())
+        self.tokens
+            .read()
+            .await
+            .as_ref()
+            .map(|t| t.access_token.clone())
     }
 
     /// Get the current auth server URL.

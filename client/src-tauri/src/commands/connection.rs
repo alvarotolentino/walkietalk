@@ -4,10 +4,7 @@ use crate::state::AppState;
 use crate::transport::manager::TransportManager;
 
 #[tauri::command]
-pub async fn connect(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn connect(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let token = state
         .access_token()
         .await
@@ -45,9 +42,6 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn reconnect(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn reconnect(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     connect(app, state).await
 }

@@ -16,10 +16,7 @@ fn hash_to_u64(s: &str) -> u64 {
 /// Creates both CPAL input + output streams (paused).
 /// Called once when entering a room.
 #[tauri::command]
-pub async fn init_audio_engine(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn init_audio_engine(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let mut eng = state.audio_engine.lock().await;
     if let Some(old) = eng.take() {
         old.shutdown();
@@ -32,9 +29,7 @@ pub async fn init_audio_engine(
 /// Shut down the audio engine.
 /// Called when leaving a room.
 #[tauri::command]
-pub async fn shutdown_audio_engine(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn shutdown_audio_engine(state: State<'_, AppState>) -> Result<(), String> {
     let mut eng = state.audio_engine.lock().await;
     if let Some(engine) = eng.take() {
         engine.shutdown();
@@ -69,9 +64,7 @@ pub async fn start_audio_capture(
 
 /// Stop audio capture. Called when floor is released/denied/timed out.
 #[tauri::command]
-pub async fn stop_audio_capture(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn stop_audio_capture(state: State<'_, AppState>) -> Result<(), String> {
     let mut eng = state.audio_engine.lock().await;
     if let Some(engine) = eng.as_mut() {
         engine.deactivate_capture();
@@ -81,9 +74,7 @@ pub async fn stop_audio_capture(
 
 /// Start audio playback. Called when another user is granted the floor.
 #[tauri::command]
-pub async fn start_audio_playback(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn start_audio_playback(state: State<'_, AppState>) -> Result<(), String> {
     let eng = state.audio_engine.lock().await;
     let engine = eng.as_ref().ok_or("Audio engine not initialised")?;
     engine.activate_playback()
@@ -91,9 +82,7 @@ pub async fn start_audio_playback(
 
 /// Stop audio playback. Called when the speaking user releases/times out.
 #[tauri::command]
-pub async fn stop_audio_playback(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn stop_audio_playback(state: State<'_, AppState>) -> Result<(), String> {
     let eng = state.audio_engine.lock().await;
     if let Some(engine) = eng.as_ref() {
         engine.deactivate_playback();

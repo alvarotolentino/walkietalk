@@ -156,9 +156,8 @@ async fn ws_recv(ws: &mut WsStream) -> ServerMessage {
 
         match msg {
             Message::Text(text) => {
-                return serde_json::from_str(&text).unwrap_or_else(|e| {
-                    panic!("failed to parse ServerMessage: {e}\nraw: {text}")
-                });
+                return serde_json::from_str(&text)
+                    .unwrap_or_else(|e| panic!("failed to parse ServerMessage: {e}\nraw: {text}"));
             }
             Message::Ping(_) | Message::Pong(_) => continue,
             other => panic!("unexpected ws message type: {other:?}"),
@@ -215,7 +214,8 @@ async fn ws_recv_many(ws: &mut WsStream, count: usize) -> Vec<ServerMessage> {
 async fn test_two_clients_ptt_audio_exchange() {
     dotenvy::dotenv().ok();
 
-    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL must be set for integration tests");
+    let redis_url =
+        std::env::var("REDIS_URL").expect("REDIS_URL must be set for integration tests");
     let redis = db::connect(&redis_url).await.expect("connect to Redis");
 
     let base = start_server(redis.clone()).await;
@@ -247,7 +247,11 @@ async fn test_two_clients_ptt_audio_exchange() {
     ws_send(&mut ws_b, &ClientMessage::JoinRoom { room_id }).await;
     let room_state_b = ws_recv(&mut ws_b).await;
     match &room_state_b {
-        ServerMessage::RoomState { room_id: rid, members, .. } => {
+        ServerMessage::RoomState {
+            room_id: rid,
+            members,
+            ..
+        } => {
             assert_eq!(*rid, room_id);
             assert_eq!(members.len(), 2); // A and B
         }
@@ -257,7 +261,9 @@ async fn test_two_clients_ptt_audio_exchange() {
     // Client A receives MEMBER_JOINED + PRESENCE_UPDATE for B
     let a_notifications = ws_recv_many(&mut ws_a, 3).await;
     assert!(
-        a_notifications.iter().any(|m| matches!(m, ServerMessage::MemberJoined { .. })),
+        a_notifications
+            .iter()
+            .any(|m| matches!(m, ServerMessage::MemberJoined { .. })),
         "expected MEMBER_JOINED in: {a_notifications:?}"
     );
 
@@ -266,7 +272,10 @@ async fn test_two_clients_ptt_audio_exchange() {
 
     let floor_granted = ws_recv(&mut ws_a).await;
     match &floor_granted {
-        ServerMessage::FloorGranted { room_id: rid, user_id } => {
+        ServerMessage::FloorGranted {
+            room_id: rid,
+            user_id,
+        } => {
             assert_eq!(*rid, room_id);
             assert_eq!(*user_id, user_a);
         }
@@ -276,7 +285,9 @@ async fn test_two_clients_ptt_audio_exchange() {
     // Client B receives FLOOR_OCCUPIED + PRESENCE_UPDATE(Speaking)
     let b_floor_msgs = ws_recv_many(&mut ws_b, 3).await;
     assert!(
-        b_floor_msgs.iter().any(|m| matches!(m, ServerMessage::FloorOccupied { .. })),
+        b_floor_msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::FloorOccupied { .. })),
         "expected FLOOR_OCCUPIED in: {b_floor_msgs:?}"
     );
 
@@ -284,7 +295,10 @@ async fn test_two_clients_ptt_audio_exchange() {
     ws_send(&mut ws_b, &ClientMessage::FloorRequest { room_id }).await;
     let denied = ws_recv(&mut ws_b).await;
     match &denied {
-        ServerMessage::FloorDenied { room_id: rid, reason } => {
+        ServerMessage::FloorDenied {
+            room_id: rid,
+            reason,
+        } => {
             assert_eq!(*rid, room_id);
             assert_eq!(reason, "busy");
         }
@@ -344,14 +358,18 @@ async fn test_two_clients_ptt_audio_exchange() {
     // Client A gets it:
     let a_release_msgs = ws_recv_many(&mut ws_a, 4).await;
     assert!(
-        a_release_msgs.iter().any(|m| matches!(m, ServerMessage::FloorReleased { .. })),
+        a_release_msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::FloorReleased { .. })),
         "expected FLOOR_RELEASED for A in: {a_release_msgs:?}"
     );
 
     // Client B gets it:
     let b_release_msgs = ws_recv_many(&mut ws_b, 4).await;
     assert!(
-        b_release_msgs.iter().any(|m| matches!(m, ServerMessage::FloorReleased { .. })),
+        b_release_msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::FloorReleased { .. })),
         "expected FLOOR_RELEASED for B in: {b_release_msgs:?}"
     );
 

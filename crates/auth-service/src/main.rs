@@ -28,8 +28,7 @@ async fn main() {
         jwt_secret: config.jwt_secret,
     });
 
-    let app = walkietalk_auth::build_app(state)
-        .layer(TraceLayer::new_for_http());
+    let app = walkietalk_auth::build_app(state).layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await
@@ -37,7 +36,5 @@ async fn main() {
 
     tracing::info!("auth service listening on {}", config.listen_addr);
 
-    axum::serve(listener, app)
-        .await
-        .expect("server error");
+    axum::serve(listener, app).await.expect("server error");
 }

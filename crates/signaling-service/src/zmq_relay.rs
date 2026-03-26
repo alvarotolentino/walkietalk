@@ -44,7 +44,10 @@ impl ZmqRelay {
     ///
     /// - `push_addr`: proxy's PULL bind address (e.g. `tcp://127.0.0.1:5559`)
     /// - `sub_addr`: proxy's PUB bind address (e.g. `tcp://127.0.0.1:5560`)
-    pub async fn new(push_addr: &str, sub_addr: &str) -> Result<(Self, SubSocket), Box<dyn std::error::Error>> {
+    pub async fn new(
+        push_addr: &str,
+        sub_addr: &str,
+    ) -> Result<(Self, SubSocket), Box<dyn std::error::Error>> {
         let mut push = PushSocket::new();
         push.connect(push_addr).await?;
         tracing::info!("ZMQ PUSH connected to {push_addr}");
@@ -73,8 +76,12 @@ impl ZmqRelay {
     pub async fn subscribe_room(&self, lock_key: i64) {
         let audio_topic = format!("{AUDIO_TOPIC_PREFIX}{lock_key}");
         let ctrl_topic = format!("{CTRL_TOPIC_PREFIX}{lock_key}");
-        let _ = self.sub_cmd_tx.send(SubCommand::Subscribe(audio_topic.clone()));
-        let _ = self.sub_cmd_tx.send(SubCommand::Subscribe(ctrl_topic.clone()));
+        let _ = self
+            .sub_cmd_tx
+            .send(SubCommand::Subscribe(audio_topic.clone()));
+        let _ = self
+            .sub_cmd_tx
+            .send(SubCommand::Subscribe(ctrl_topic.clone()));
         tracing::debug!("ZMQ subscribe requested: {audio_topic}, {ctrl_topic}");
     }
 
@@ -82,8 +89,12 @@ impl ZmqRelay {
     pub async fn unsubscribe_room(&self, lock_key: i64) {
         let audio_topic = format!("{AUDIO_TOPIC_PREFIX}{lock_key}");
         let ctrl_topic = format!("{CTRL_TOPIC_PREFIX}{lock_key}");
-        let _ = self.sub_cmd_tx.send(SubCommand::Unsubscribe(audio_topic.clone()));
-        let _ = self.sub_cmd_tx.send(SubCommand::Unsubscribe(ctrl_topic.clone()));
+        let _ = self
+            .sub_cmd_tx
+            .send(SubCommand::Unsubscribe(audio_topic.clone()));
+        let _ = self
+            .sub_cmd_tx
+            .send(SubCommand::Unsubscribe(ctrl_topic.clone()));
         tracing::debug!("ZMQ unsubscribe requested: {audio_topic}, {ctrl_topic}");
     }
 

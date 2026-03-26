@@ -103,11 +103,7 @@ pub async fn handle_connection(
 }
 
 /// Parse and dispatch a text frame as a ClientMessage.
-async fn handle_text_message(
-    text: &str,
-    conn_state: &mut ConnectionState,
-    state: &Arc<AppState>,
-) {
+async fn handle_text_message(text: &str, conn_state: &mut ConnectionState, state: &Arc<AppState>) {
     tracing::info!(user_id = %conn_state.user_id, "<-- received text frame: {}", &text[..text.len().min(200)]);
     let msg: ClientMessage = match serde_json::from_str(text) {
         Ok(m) => m,
@@ -155,26 +151,21 @@ async fn handle_join_room(
     let user_id = conn_state.user_id;
 
     // Verify membership in DB
-    let is_member: bool = match db::is_room_member(
-        &mut state.redis.clone(),
-        room_id.0,
-        user_id.0,
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("DB error checking membership: {e}");
-            send_to_client(
-                &conn_state.tx,
-                &ServerMessage::Error {
-                    code: 500,
-                    message: "internal error".into(),
-                },
-            );
-            return;
-        }
-    };
+    let is_member: bool =
+        match db::is_room_member(&mut state.redis.clone(), room_id.0, user_id.0).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("DB error checking membership: {e}");
+                send_to_client(
+                    &conn_state.tx,
+                    &ServerMessage::Error {
+                        code: 500,
+                        message: "internal error".into(),
+                    },
+                );
+                return;
+            }
+        };
 
     if !is_member {
         tracing::warn!(%user_id, %room_id, "join_room REJECTED: not a room member");
@@ -320,10 +311,9 @@ async fn handle_leave_room(
     conn_state.lock_keys.remove(&room_id);
 
     // Notify remaining members
-    state.ws_hub.broadcast_to_room(
-        &room_id,
-        &ServerMessage::MemberLeft { room_id, user_id },
-    );
+    state
+        .ws_hub
+        .broadcast_to_room(&room_id, &ServerMessage::MemberLeft { room_id, user_id });
 
     tracing::debug!(%user_id, %room_id, "left room via WS");
     record!(state.metrics, room_leaves);
@@ -410,15 +400,19 @@ async fn handle_floor_request(
                 status: PresenceStatus::Online,
             };
 
-            timeout_state.ws_hub.broadcast_to_room(&timeout_room, &timeout_msg);
-            timeout_state.ws_hub.broadcast_to_room(&timeout_room, &released_msg);
+            timeout_state
+                .ws_hub
+                .broadcast_to_room(&timeout_room, &timeout_msg);
+            timeout_state
+                .ws_hub
+                .broadcast_to_room(&timeout_room, &released_msg);
 
-            timeout_state.presence.set_status(
-                &timeout_room,
-                &uid,
-                PresenceStatus::Online,
-            );
-            timeout_state.ws_hub.broadcast_to_room(&timeout_room, &presence_msg);
+            timeout_state
+                .presence
+                .set_status(&timeout_room, &uid, PresenceStatus::Online);
+            timeout_state
+                .ws_hub
+                .broadcast_to_room(&timeout_room, &presence_msg);
 
             // Publish to ZMQ for other nodes
             if let Some(ref relay) = timeout_state.zmq_relay {
@@ -451,11 +445,9 @@ async fn handle_floor_request(
                 speaker_id: user_id,
                 display_name: conn_state.display_name.clone(),
             };
-            state.ws_hub.broadcast_to_room_except(
-                &room_id,
-                &user_id,
-                &occupied_msg,
-            );
+            state
+                .ws_hub
+                .broadcast_to_room_except(&room_id, &user_id, &occupied_msg);
             // Update presence to Speaking
             state
                 .presence
@@ -527,11 +519,7 @@ async fn handle_floor_release(
 // Binary audio relay
 // ---------------------------------------------------------------------------
 
-async fn handle_binary_frame(
-    data: &[u8],
-    conn_state: &ConnectionState,
-    state: &Arc<AppState>,
-) {
+async fn handle_binary_frame(data: &[u8], conn_state: &ConnectionState, state: &Arc<AppState>) {
     // Decode only the fixed header (fast path — no payload allocation)
     let (wire_room_id, speaker_id, sequence_num, flags) = match AudioFrame::decode_header(data) {
         Ok(h) => h,
@@ -570,7 +558,9 @@ async fn handle_binary_frame(
 
     // Publish to ZMQ for multi-node fan-out (if configured)
     if let Some(ref relay) = state.zmq_relay {
-        relay.publish_audio(wire_room_id as i64, &user_id, data).await;
+        relay
+            .publish_audio(wire_room_id as i64, &user_id, data)
+            .await;
         record!(state.metrics, zmq_frames_published);
     }
 
@@ -635,7 +625,9 @@ async fn release_floor_if_held(room_id: &RoomId, user_id: &UserId, state: &Arc<A
 
 /// Reverse-lookup: find the lock_key for a given RoomId.
 fn find_lock_key(map: &DashMap<i64, RoomId>, room_id: &RoomId) -> Option<i64> {
-    map.iter().find(|entry| entry.value() == room_id).map(|entry| *entry.key())
+    map.iter()
+        .find(|entry| entry.value() == room_id)
+        .map(|entry| *entry.key())
 }
 
 /// Clean up all state when a client disconnects.

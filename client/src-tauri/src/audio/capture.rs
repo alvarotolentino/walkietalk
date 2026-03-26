@@ -110,7 +110,9 @@ pub fn start_capture(
         )
         .map_err(|e| format!("Failed to build input stream: {e}"))?;
 
-    stream.play().map_err(|e| format!("Failed to start input stream: {e}"))?;
+    stream
+        .play()
+        .map_err(|e| format!("Failed to start input stream: {e}"))?;
 
     let stream = SendStream(stream);
 
@@ -139,7 +141,10 @@ pub fn start_capture(
         })
         .map_err(|e| format!("Failed to spawn encode thread: {e}"))?;
 
-    Ok(CaptureHandle { stream, stop: stop_flag })
+    Ok(CaptureHandle {
+        stream,
+        stop: stop_flag,
+    })
 }
 
 /// Encoding loop: buffers samples → downmix → resample → Opus encode → WS binary.

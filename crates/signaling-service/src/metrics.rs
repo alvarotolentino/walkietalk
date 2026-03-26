@@ -17,18 +17,26 @@
 #[macro_export]
 macro_rules! record {
     ($metrics:expr, $field:ident) => {
-        $metrics.$field.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        $metrics
+            .$field
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     };
     ($metrics:expr, $field:ident, $val:expr) => {
-        $metrics.$field.fetch_add($val, std::sync::atomic::Ordering::Relaxed)
+        $metrics
+            .$field
+            .fetch_add($val, std::sync::atomic::Ordering::Relaxed)
     };
 }
 
 #[cfg(not(feature = "metrics"))]
 #[macro_export]
 macro_rules! record {
-    ($metrics:expr, $field:ident) => { /* no-op */ };
-    ($metrics:expr, $field:ident, $val:expr) => { /* no-op */ };
+    ($metrics:expr, $field:ident) => {
+        /* no-op */
+    };
+    ($metrics:expr, $field:ident, $val:expr) => {
+        /* no-op */
+    };
 }
 
 // ── Full metrics (feature = "metrics") ──────────────────────────────────

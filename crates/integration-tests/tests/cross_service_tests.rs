@@ -26,10 +26,20 @@ async fn full_ptt_journey_through_both_services() {
     let s = unique_suffix();
 
     // Register two users via auth service
-    let (token_a, _refresh_a, _uid_a) =
-        register_user(&auth_base, &format!("alice_{s}"), &format!("alice_{s}@test.io"), "password123").await;
-    let (token_b, _refresh_b, _uid_b) =
-        register_user(&auth_base, &format!("bob_{s}"), &format!("bob_{s}@test.io"), "password456").await;
+    let (token_a, _refresh_a, _uid_a) = register_user(
+        &auth_base,
+        &format!("alice_{s}"),
+        &format!("alice_{s}@test.io"),
+        "password123",
+    )
+    .await;
+    let (token_b, _refresh_b, _uid_b) = register_user(
+        &auth_base,
+        &format!("bob_{s}"),
+        &format!("bob_{s}@test.io"),
+        "password456",
+    )
+    .await;
 
     // Alice creates a public room via signaling service using her auth token
     let room = create_room(&sig_base, &token_a, &format!("CrossRoom_{s}"), "public").await;
@@ -65,7 +75,9 @@ async fn full_ptt_journey_through_both_services() {
 
     // Bob sees FloorOccupied
     let b_floor = ws_recv_many(&mut ws_b, 3).await;
-    assert!(b_floor.iter().any(|m| matches!(m, ServerMessage::FloorOccupied { .. })));
+    assert!(b_floor
+        .iter()
+        .any(|m| matches!(m, ServerMessage::FloorOccupied { .. })));
 
     // Get lock_key for audio wire format
     use walkietalk_shared::db;
@@ -84,9 +96,11 @@ async fn full_ptt_journey_through_both_services() {
     };
 
     use futures_util::SinkExt;
-    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(frame.encode()))
-        .await
-        .expect("send audio");
+    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(
+        frame.encode(),
+    ))
+    .await
+    .expect("send audio");
 
     // Bob receives audio
     let audio = ws_recv_binary(&mut ws_b).await;
@@ -101,9 +115,11 @@ async fn full_ptt_journey_through_both_services() {
         flags: FLAG_END_OF_TRANSMISSION,
         payload: vec![],
     };
-    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(eot.encode()))
-        .await
-        .expect("send EOT");
+    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(
+        eot.encode(),
+    ))
+    .await
+    .expect("send EOT");
 
     let eot_recv = ws_recv_binary(&mut ws_b).await;
     let eot_dec = AudioFrame::decode(&eot_recv).unwrap();
@@ -127,8 +143,13 @@ async fn auth_token_works_across_services() {
     let s = unique_suffix();
 
     // Register via auth service
-    let (token, _refresh, user_id) =
-        register_user(&auth_base, &format!("cross_{s}"), &format!("cross_{s}@test.io"), "password123").await;
+    let (token, _refresh, user_id) = register_user(
+        &auth_base,
+        &format!("cross_{s}"),
+        &format!("cross_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     // Use auth token to GET /users/me
     let client = reqwest::Client::new();
@@ -167,8 +188,13 @@ async fn refresh_then_use_new_token() {
 
     let s = unique_suffix();
 
-    let (_token, refresh, _uid) =
-        register_user(&auth_base, &format!("refresh_{s}"), &format!("refresh_{s}@test.io"), "password123").await;
+    let (_token, refresh, _uid) = register_user(
+        &auth_base,
+        &format!("refresh_{s}"),
+        &format!("refresh_{s}@test.io"),
+        "password123",
+    )
+    .await;
 
     // Refresh to get a new access token
     let client = reqwest::Client::new();

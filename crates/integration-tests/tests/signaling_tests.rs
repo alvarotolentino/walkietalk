@@ -89,8 +89,12 @@ async fn list_public_rooms() {
     assert_eq!(res.status(), 200);
     let rooms: Vec<serde_json::Value> = res.json().await.expect("parse public rooms");
     // Only the public room should appear (test DB is isolated per container)
-    assert!(rooms.iter().any(|r| r["name"].as_str().unwrap().contains("PublicRoom")));
-    assert!(!rooms.iter().any(|r| r["name"].as_str().unwrap().contains("PrivateRoom")));
+    assert!(rooms
+        .iter()
+        .any(|r| r["name"].as_str().unwrap().contains("PublicRoom")));
+    assert!(!rooms
+        .iter()
+        .any(|r| r["name"].as_str().unwrap().contains("PrivateRoom")));
 }
 
 #[tokio::test]
@@ -204,7 +208,10 @@ async fn join_private_room_with_invite_code() {
         .await
         .expect("join without invite");
 
-    assert!(res.status().is_client_error(), "join private without invite should fail");
+    assert!(
+        res.status().is_client_error(),
+        "join private without invite should fail"
+    );
 
     // Join with invite code → should succeed
     let res = client
@@ -215,7 +222,11 @@ async fn join_private_room_with_invite_code() {
         .await
         .expect("join with invite");
 
-    assert!(res.status().is_success(), "join with invite should succeed: {}", res.status());
+    assert!(
+        res.status().is_success(),
+        "join with invite should succeed: {}",
+        res.status()
+    );
 }
 
 #[tokio::test]
@@ -294,7 +305,9 @@ async fn ws_join_room_and_floor_management() {
     // B sees FloorOccupied
     let b_msgs = ws_recv_many(&mut ws_b, 3).await;
     assert!(
-        b_msgs.iter().any(|m| matches!(m, ServerMessage::FloorOccupied { .. })),
+        b_msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::FloorOccupied { .. })),
         "expected FloorOccupied, got: {b_msgs:?}"
     );
 
@@ -308,10 +321,14 @@ async fn ws_join_room_and_floor_management() {
 
     // Both should get FloorReleased
     let a_release = ws_recv_many(&mut ws_a, 3).await;
-    assert!(a_release.iter().any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
+    assert!(a_release
+        .iter()
+        .any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
 
     let b_release = ws_recv_many(&mut ws_b, 3).await;
-    assert!(b_release.iter().any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
+    assert!(b_release
+        .iter()
+        .any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
 
     ws_a.close(None).await.ok();
     ws_b.close(None).await.ok();
@@ -366,9 +383,11 @@ async fn ws_audio_relay_and_eot() {
     assert_eq!(encoded.len(), HEADER_SIZE + 4);
 
     use futures_util::SinkExt;
-    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(encoded.clone()))
-        .await
-        .expect("send audio");
+    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(
+        encoded.clone(),
+    ))
+    .await
+    .expect("send audio");
 
     // B receives binary
     let received = ws_recv_binary(&mut ws_b).await;
@@ -386,9 +405,11 @@ async fn ws_audio_relay_and_eot() {
         flags: FLAG_END_OF_TRANSMISSION,
         payload: vec![],
     };
-    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(eot.encode()))
-        .await
-        .expect("send EOT");
+    ws_a.send(tokio_tungstenite::tungstenite::Message::Binary(
+        eot.encode(),
+    ))
+    .await
+    .expect("send EOT");
 
     let eot_recv = ws_recv_binary(&mut ws_b).await;
     let eot_dec = AudioFrame::decode(&eot_recv).unwrap();
@@ -396,9 +417,13 @@ async fn ws_audio_relay_and_eot() {
 
     // Both get FloorReleased
     let a_msgs = ws_recv_many(&mut ws_a, 4).await;
-    assert!(a_msgs.iter().any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
+    assert!(a_msgs
+        .iter()
+        .any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
     let b_msgs = ws_recv_many(&mut ws_b, 4).await;
-    assert!(b_msgs.iter().any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
+    assert!(b_msgs
+        .iter()
+        .any(|m| matches!(m, ServerMessage::FloorReleased { .. })));
 
     ws_a.close(None).await.ok();
     ws_b.close(None).await.ok();
