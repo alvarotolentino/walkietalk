@@ -94,8 +94,14 @@ async fn create_test_room(base_url: &str, token: &str, name: &str) -> (RoomId, S
     assert_eq!(res.status(), 201, "create room failed: {}", res.status());
     let body: serde_json::Value = res.json().await.expect("parse room body");
     let id_str = body["id"].as_str().expect("room id");
-    let invite_code = body["invite_code"].as_str().expect("invite_code").to_string();
-    (RoomId(id_str.parse().expect("parse room uuid")), invite_code)
+    let invite_code = body["invite_code"]
+        .as_str()
+        .expect("invite_code")
+        .to_string();
+    (
+        RoomId(id_str.parse().expect("parse room uuid")),
+        invite_code,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +233,8 @@ async fn test_two_clients_ptt_audio_exchange() {
     let (_user_b, jwt_b) = create_test_user(&redis, &format!("bob_{suffix}")).await;
 
     // ── User A creates a public room ───────────────────────────────────────
-    let (room_id, invite_code) = create_test_room(&base, &jwt_a, &format!("TestRoom_{suffix}")).await;
+    let (room_id, invite_code) =
+        create_test_room(&base, &jwt_a, &format!("TestRoom_{suffix}")).await;
 
     // ── User B joins the room via REST ─────────────────────────────────────
     join_room_rest(&base, &jwt_b, &room_id, &invite_code).await;
