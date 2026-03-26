@@ -44,10 +44,11 @@ async fn full_ptt_journey_through_both_services() {
     // Alice creates a public room via signaling service using her auth token
     let room = create_room(&sig_base, &token_a, &format!("CrossRoom_{s}"), "public").await;
     let room_id_str = room["id"].as_str().unwrap();
+    let invite_code = room["invite_code"].as_str().unwrap();
     let room_id = RoomId(room_id_str.parse().unwrap());
 
     // Bob joins the room
-    join_room(&sig_base, &token_b, room_id_str).await;
+    join_room(&sig_base, &token_b, room_id_str, invite_code).await;
 
     // Both connect via WebSocket
     let mut ws_a = ws_connect(&sig_base, &token_a).await;

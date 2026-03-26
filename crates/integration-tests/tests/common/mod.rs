@@ -256,12 +256,12 @@ pub async fn create_room(
 }
 
 /// Join a room via REST.
-pub async fn join_room(sig_base: &str, token: &str, room_id: &str) {
+pub async fn join_room(sig_base: &str, token: &str, room_id: &str, invite_code: &str) {
     let client = reqwest::Client::new();
     let res = client
         .post(format!("http://{sig_base}/rooms/{room_id}/join"))
         .header("Authorization", format!("Bearer {token}"))
-        .json(&serde_json::json!({}))
+        .json(&serde_json::json!({ "invite_code": invite_code }))
         .send()
         .await
         .expect("join room request");
