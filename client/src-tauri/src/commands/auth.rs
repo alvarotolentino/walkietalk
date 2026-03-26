@@ -152,9 +152,32 @@ pub async fn get_current_user(
             serde_json::from_value::<TokenPair>(tv),
             serde_json::from_value::<UserInfo>(uv),
         ) {
+            // Load tokens into memory so the HTTP client can use them
             *state.tokens.write().await = Some(tokens);
             *state.user.write().await = Some(user.clone());
-            return Ok(user);
+
+            // Validate the token against the server
+            let http = HttpClient::new();
+            match http.get(&state, "/users/me").await {
+                Ok(req) => match http.send_json::<UserInfo>(req).await {
+                    Ok(fresh_user) => {
+                        *state.user.write().await = Some(fresh_user.clone());
+                        return Ok(fresh_user);
+                    }
+                    Err(_) => {
+                        // Token is invalid/expired — clear everything
+                        *state.tokens.write().await = None;
+                        *state.user.write().await = None;
+                        clear_auth(&app);
+                    }
+                },
+                Err(_) => {
+                    // Could not build request — clear state
+                    *state.tokens.write().await = None;
+                    *state.user.write().await = None;
+                    clear_auth(&app);
+                }
+            }
         }
     }
 
