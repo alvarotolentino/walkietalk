@@ -3,6 +3,7 @@
 Rust-first push-to-talk communication platform.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![CI](https://github.com/alvarotolentino/walkietalk/actions/workflows/ci.yml/badge.svg)](https://github.com/alvarotolentino/walkietalk/actions/workflows/ci.yml)
 
 ## Architecture
 
@@ -32,7 +33,7 @@ Rust-first push-to-talk communication platform.
 |---|---|---|
 | `walkietalk-shared` | `crates/shared` | Domain types, IDs, messages, audio codec, JWT helpers, Axum extractors, Redis data-access layer |
 | `walkietalk-auth` | `crates/auth-service` | Registration, login, JWT issuance, device management |
-| `walkietalk-signaling` | `crates/signaling-service` | WebSocket hub, rooms, floor lock (Redis SET NX EX), presence, metrics, audio relay, ZMQ fan-out |
+| `walkietalk-signaling` | `crates/signaling-service` | WebSocket hub, rooms, invite-code join, floor lock (Redis SET NX EX), presence, metrics, audio relay, ZMQ fan-out |
 | `walkietalk-zmq-proxy` | `crates/zmq-proxy` | PULL/PUB fan-out proxy for multi-node signaling |
 | `walkietalk-integration-tests` | `crates/integration-tests` | End-to-end tests across services |
 | `walkietalk-client` | `client/src-tauri` | Tauri v2 native shell — audio I/O (cpal + Opus), WS client, REST client |
@@ -44,7 +45,7 @@ The **client frontend** lives in `client/` (SolidJS + TypeScript + Vite).
 | Service | Default Address | Protocol | Description |
 |---|---|---|---|
 | Auth | `0.0.0.0:3001` | REST | User registration, login, JWT tokens, device management |
-| Signaling | `0.0.0.0:3002` | WebSocket + REST | Rooms, floor lock, presence, metrics, audio relay |
+| Signaling | `0.0.0.0:3002` | WebSocket + REST | Rooms, invite-code join, floor lock, presence, metrics, audio relay |
 | ZMQ Proxy | `0.0.0.0:5559` / `5560` | ZeroMQ | PULL/PUB fan-out for multi-node audio + signaling |
 | LuxDB | `0.0.0.0:6379` | RESP (Redis) | Users, rooms, memberships, floor locks, refresh tokens |
 
@@ -104,20 +105,104 @@ npm run tauri dev
 | `ZMQ_PUSH_ADDR` | `tcp://127.0.0.1:5559` | Signaling → proxy PUSH address |
 | `ZMQ_SUB_ADDR` | `tcp://127.0.0.1:5560` | Signaling ← proxy SUB address |
 
+## REST API
+
+### Auth Service
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/auth/register` | — | Create user account |
+| `POST` | `/auth/login` | — | Authenticate and get JWT + refresh token |
+| `POST` | `/auth/refresh` | — | Refresh expired JWT |
+| `POST` | `/auth/logout` | — | Revoke refresh tokens |
+| `GET` | `/users/me` | JWT | Get authenticated user profile |
+| `GET` | `/users/me/devices` | JWT | List user's devices |
+| `POST` | `/users/me/devices` | JWT | Register device |
+| `DELETE` | `/users/me/devices/:id` | JWT | Delete device |
+| `GET` | `/health` | — | Liveness check |
+
+### Signaling Service
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/rooms` | JWT | Create room (auto-generates invite code) |
+| `GET` | `/rooms` | JWT | List user's rooms |
+| `GET` | `/rooms/:id` | JWT | Get room details + members |
+| `PATCH` | `/rooms/:id` | JWT | Update room (owner only) |
+| `DELETE` | `/rooms/:id` | JWT | Delete room (owner only) |
+| `POST` | `/rooms/:id/join` | JWT | Join room by ID + invite code |
+| `POST` | `/rooms/join` | JWT | Join room by invite code only |
+| `POST` | `/rooms/:id/invite` | JWT | Generate new invite code (owner only) |
+| `DELETE` | `/rooms/:id/leave` | JWT | Leave room |
+| `GET` | `/ws?token=JWT` | JWT | WebSocket upgrade |
+| `GET` | `/health` | — | Liveness check |
+| `GET` | `/metrics` | — | Atomic counters (requires `metrics` feature) |
+
+## WebSocket Protocol
+
+**Client → Server** (JSON text frames):
+
+| Message | Fields | Description |
+|---|---|---|
+| `JoinRoom` | `room_id` | Subscribe to room events |
+| `LeaveRoom` | `room_id` | Unsubscribe from room |
+| `FloorRequest` | `room_id` | Request permission to speak |
+| `FloorRelease` | `room_id` | Release the floor |
+| `Heartbeat` | `ts` | Keep-alive ping |
+
+**Server → Client** (JSON text frames):
+
+| Message | Key Fields | Description |
+|---|---|---|
+| `RoomState` | `room_id`, `members`, `floor_holder`, `lock_key` | Full state on join |
+| `FloorGranted` | `room_id`, `user_id` | Floor acquired |
+| `FloorDenied` | `room_id`, `reason` | Floor request rejected |
+| `FloorReleased` | `room_id`, `user_id` | Speaker released floor |
+| `FloorTimeout` | `room_id`, `user_id` | 60s server-side timeout |
+| `PresenceUpdate` | `room_id`, `user_id`, `status` | Online/Offline/Speaking |
+| `MemberJoined` | `room_id`, `user` | New member joined room |
+| `MemberLeft` | `room_id`, `user_id` | Member left room |
+| `Error` | `code`, `message` | Error response |
+| `HeartbeatAck` | `ts` | Keep-alive reply |
+
+**Audio**: Binary WebSocket frames carry Opus-encoded audio during floor hold.
+
 ## Testing
 
+### Unit tests (no Redis required)
+
 ```bash
-# Unit & integration tests
-cargo test --workspace
-
-# Clippy lint check
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Client type check
-cd client && npx tsc --noEmit
+cargo test -p walkietalk-shared
+cargo test -p walkietalk-zmq-proxy
+cargo test -p walkietalk-auth
+cargo test -p walkietalk-signaling --lib
 ```
 
-FloorManager and integration tests use [testcontainers](https://crates.io/crates/testcontainers) to spin up a Redis instance automatically — no external database required.
+### Integration tests (require Redis)
+
+The integration tests spin up real Redis containers via [testcontainers](https://crates.io/crates/testcontainers). You also need `REDIS_URL` and `JWT_SECRET` for the signaling-service integration test:
+
+```bash
+# Cross-service tests (testcontainers handles Redis automatically)
+cargo test -p walkietalk-integration-tests
+
+# Signaling-service integration test (needs a running Redis)
+REDIS_URL=redis://localhost:6379 JWT_SECRET=test-secret \
+  cargo test -p walkietalk-signaling --test integration_test
+```
+
+### Lint
+
+```bash
+cargo clippy --workspace --exclude walkietalk-client --exclude walkietalk_client_lib -- -D warnings
+cargo fmt --all -- --check
+```
+
+### Client type check
+
+```bash
+cd client && npx tsc --noEmit
+```
 
 ## Benchmarking
 
@@ -172,11 +257,13 @@ walkietalk/
 ## Key Technical Decisions
 
 - **Data store** — [LuxDB](https://github.com/lux-db/lux), a Redis-compatible server written in Rust. Data is modelled as Redis hashes (users, rooms, devices, tokens), sets (room members), and sorted sets (public rooms). Accessed via the `redis` crate with `ConnectionManager` for automatic reconnection.
+- **Invite-code join** — All room joins require a valid invite code. Codes are auto-generated on room creation and can be rotated by the owner via `POST /rooms/:id/invite`. Rooms are capped at 500 members.
 - **Floor lock** — Redis `SET floor:{room_id} {user_id} NX EX 60` guarantees exactly-one-speaker across all signaling nodes, with a 60-second server-side timeout. A local `DashMap` cache provides zero-cost holder checks on the hot path.
-- **Multi-node fan-out** — ZeroMQ PUSH/PUB pattern: each signaling node PUSHes events to the proxy, which PUBs to all subscribers. Scales horizontally by adding more signaling nodes.
+- **Multi-node fan-out** — ZeroMQ PUSH/PUB pattern: each signaling node PUSHes events to the proxy, which PUBs to all subscribers. Scales horizontally by adding more signaling nodes. If ZMQ addresses are unset, the signaling service runs standalone.
 - **Audio codec** — Opus via `audiopus`, binary-framed over WebSocket for minimal overhead.
 - **Shared types** — The `walkietalk-shared` crate is used by both backend services and the Tauri client, ensuring message/type parity.
-- **Observability** — Each signaling node exposes `GET /metrics` with atomic counters for WebSocket connections, audio frames/bytes, floor operations, and room activity.
+- **Observability** — Each signaling node exposes `GET /metrics` (behind the `metrics` feature flag) with atomic counters for WebSocket connections, audio frames/bytes, floor operations, and room activity.
+- **Release profile** — `opt-level=3`, `lto=fat`, `codegen-units=1`, `strip=symbols` for production builds.
 
 ## License
 
