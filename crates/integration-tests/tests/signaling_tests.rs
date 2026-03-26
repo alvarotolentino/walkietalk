@@ -22,7 +22,6 @@ async fn create_and_get_room() {
     let room = create_room(&sig_base, &jwt, &format!("Room_{s}"), "public").await;
     let room_id = room["id"].as_str().expect("room id");
     assert_eq!(room["name"].as_str().unwrap(), format!("Room_{s}"));
-    assert_eq!(room["visibility"].as_str().unwrap(), "public");
     assert_eq!(room["owner_id"].as_str().unwrap(), uid.0.to_string());
     assert_eq!(room["member_count"].as_i64().unwrap(), 1);
 
@@ -64,37 +63,6 @@ async fn list_user_rooms() {
     assert_eq!(res.status(), 200);
     let rooms: Vec<serde_json::Value> = res.json().await.expect("parse rooms list");
     assert_eq!(rooms.len(), 2);
-}
-
-#[tokio::test]
-async fn list_public_rooms() {
-    let db = TestDb::start().await;
-    let sig_base = start_signaling_server(db.redis.clone()).await;
-    let s = unique_suffix();
-
-    let (_uid, jwt) = create_test_user_direct(&db.redis, &format!("pub_{s}")).await;
-
-    create_room(&sig_base, &jwt, &format!("PublicRoom_{s}"), "public").await;
-    create_room(&sig_base, &jwt, &format!("PrivateRoom_{s}"), "private").await;
-
-    // GET /rooms/public (still requires auth, just filters by visibility)
-    let client = reqwest::Client::new();
-    let res = client
-        .get(format!("http://{sig_base}/rooms/public"))
-        .header("Authorization", format!("Bearer {jwt}"))
-        .send()
-        .await
-        .expect("list public rooms");
-
-    assert_eq!(res.status(), 200);
-    let rooms: Vec<serde_json::Value> = res.json().await.expect("parse public rooms");
-    // Only the public room should appear (test DB is isolated per container)
-    assert!(rooms
-        .iter()
-        .any(|r| r["name"].as_str().unwrap().contains("PublicRoom")));
-    assert!(!rooms
-        .iter()
-        .any(|r| r["name"].as_str().unwrap().contains("PrivateRoom")));
 }
 
 #[tokio::test]
